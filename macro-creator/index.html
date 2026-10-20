@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Makro Studio</title>
+  <meta name="description" content="Makros mit Auslösern, Aktionen und Bedingungen erstellen – inspiriert von MacroDroid.">
+  <meta name="theme-color" content="#22324a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="appbar" id="appbar">
+    <button class="icon-btn" id="appbar-back" aria-label="Zurück" hidden><span class="mi">arrow_back</span></button>
+    <h1 class="appbar-title" id="appbar-title">Makro Studio</h1>
+    <div class="appbar-actions" id="appbar-actions"></div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Hauptnavigation">
+    <a href="#/" data-route="home"><span class="mi">home</span><span>Start</span></a>
+    <a href="#/macros" data-route="macros"><span class="mi">format_list_bulleted</span><span>Makros</span></a>
+    <a href="#/templates" data-route="templates"><span class="mi">dashboard_customize</span><span>Vorlagen</span></a>
+    <a href="#/variables" data-route="variables"><span class="mi">data_object</span><span>Variablen</span></a>
+    <a href="#/log" data-route="log"><span class="mi">receipt_long</span><span>Protokoll</span></a>
+  </nav>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/catalog.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/templates.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
