@@ -201,6 +201,7 @@ class NativeBridge {
                     .put("dnd", nm.isNotificationPolicyAccessGranted())
                     .put("write_settings", Settings.System.canWrite(app))
                     .put("overlay", Settings.canDrawOverlays(app))
+                    .put("bluetooth", Build.VERSION.SDK_INT < 31 || granted(Manifest.permission.BLUETOOTH_CONNECT))
                     .put("service", MacroService.running)
                     .put(Prefs.AUTOSTART, Prefs.get(app).getBoolean(Prefs.AUTOSTART, false))
                     .put(Prefs.CPU_WAKE, Prefs.get(app).getBoolean(Prefs.CPU_WAKE, false))
@@ -237,6 +238,9 @@ class NativeBridge {
                 break;
             case "battery":
                 settings = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri);
+                break;
+            case "bluetooth":
+                if (Build.VERSION.SDK_INT >= 31) runtime = new String[] { Manifest.permission.BLUETOOTH_CONNECT };
                 break;
             case "accessibility":
                 settings = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
@@ -537,6 +541,29 @@ class NativeBridge {
         }
         nm.setInterruptionFilter(f);
         return "";
+    }
+
+    /** Medientaste senden: play, pause, play_pause, next, previous, stop. */
+    @JavascriptInterface
+    public String mediaControl(String action) {
+        int key;
+        switch (action) {
+            case "play": key = android.view.KeyEvent.KEYCODE_MEDIA_PLAY; break;
+            case "pause": key = android.view.KeyEvent.KEYCODE_MEDIA_PAUSE; break;
+            case "next": key = android.view.KeyEvent.KEYCODE_MEDIA_NEXT; break;
+            case "previous": key = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; break;
+            case "stop": key = android.view.KeyEvent.KEYCODE_MEDIA_STOP; break;
+            default: key = android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE; break;
+        }
+        AudioManager am = app.getSystemService(AudioManager.class);
+        am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key));
+        am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key));
+        return "";
+    }
+
+    @JavascriptInterface
+    public boolean isMusicActive() {
+        return app.getSystemService(AudioManager.class).isMusicActive();
     }
 
     @JavascriptInterface

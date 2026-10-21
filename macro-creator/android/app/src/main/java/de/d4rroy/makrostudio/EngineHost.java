@@ -47,6 +47,7 @@ final class EngineHost {
     private NativeBridge bridge;
     private Activity activity;
     private BroadcastReceiver batteryReceiver;
+    private BroadcastReceiver bluetoothReceiver;
     private ValueCallback<Uri[]> fileCallback;
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
@@ -189,13 +190,39 @@ final class EngineHost {
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(batteryReceiver, filter, Context.RECEIVER_EXPORTED);
         else app.registerReceiver(batteryReceiver, filter);
+
+        // Bluetooth-Geräte verbunden/getrennt (ab Android 12 nur mit Berechtigung „Geräte in der Nähe“)
+        bluetoothReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                android.bluetooth.BluetoothDevice dev = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+                boolean connected = android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED.equals(intent.getAction());
+                String name = "", address = "";
+                try {
+                    if (dev != null) {
+                        address = dev.getAddress();
+                        name = dev.getName() == null ? "" : dev.getName();
+                    }
+                } catch (SecurityException ignored) {
+                    // ohne Berechtigung kein Gerätename
+                }
+                eval("window.MS&&MS.native&&MS.native._bluetooth&&MS.native._bluetooth(" + connected + ","
+                        + org.json.JSONObject.quote(name) + "," + org.json.JSONObject.quote(address) + ")");
+            }
+        };
+        IntentFilter bt = new IntentFilter(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED);
+        bt.addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(bluetoothReceiver, bt, Context.RECEIVER_EXPORTED);
+        else app.registerReceiver(bluetoothReceiver, bt);
     }
 
     /** Beendet die Engine (nur wenn weder App noch Hintergrunddienst sie brauchen). */
     void shutdownIfUnused() {
         if (activity != null || MacroService.running || web == null) return;
         if (batteryReceiver != null) app.unregisterReceiver(batteryReceiver);
+        if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
         batteryReceiver = null;
+        bluetoothReceiver = null;
         bridge.shutdown();
         web.destroy();
         web = null;

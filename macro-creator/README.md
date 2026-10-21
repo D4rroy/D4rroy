@@ -75,6 +75,7 @@ Fragt die Firewall beim Start nach, den Zugriff im privaten Netzwerk erlauben. P
 | **Variablen** | Globale und lokale Variablen (Boolesch, Ganzzahl, Dezimalzahl, Zeichenkette) |
 | **Magic Text** | `{time}`, `{date}`, `{weekday}`, `{battery}`, `{v=name}`, `{lv=name}`, `{trigger_info}`, `{iteration}`, `{random=1-6}` … über den `{ }`-Knopf neben Textfeldern |
 | **Action Blocks** | Wiederverwendbare Aktionsfolgen mit Ein- und Ausgabevariablen |
+| **MacroDroid-Import** | `.macro`-Dateien aus MacroDroid importieren (Importieren-Knopf). Auslöser, Aktionen, Bedingungen, Wenn/Sonst/Schleifen, Variablen und Action Blocks werden umgewandelt; was sich nicht übertragen lässt (z. B. Anrufe, SMS, UI-Klicks), bleibt als Kommentar stehen und steht im Import-Bericht. |
 | **Weiteres** | 14 Vorlagen, Kategorien, Systemprotokoll mit Filtern, Import/Export als JSON, Testen einzelner Aktionen, helles/dunkles Design |
 
 ## Grenzen gegenüber MacroDroid

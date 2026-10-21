@@ -471,7 +471,7 @@
       ['{macro_name}', 'Makroname'], ['{trigger}', 'Auslöser'], ['{trigger_info}', 'Auslöser-Details'],
       ['{iteration}', 'Schleifendurchlauf'],
       ['{not_app}', 'Benachrichtigung: App'], ['{not_title}', 'Benachrichtigung: Titel'], ['{not_text}', 'Benachrichtigung: Text'],
-      ['{app_name}', 'Geöffnete App'], ['{app_package}', 'Paketname der App'], ['{random=1-100}', 'Zufallszahl (min-max)'], ['{device}', 'Plattform'],
+      ['{app_name}', 'Geöffnete App'], ['{app_package}', 'Paketname der App'], ['{bt_device}', 'Bluetooth-Gerät'], ['{random=1-100}', 'Zufallszahl (min-max)'], ['{device}', 'Plattform'],
       ['{newline}', 'Zeilenumbruch'],
     ],
     apply(text, ctx) {
@@ -507,7 +507,7 @@
       case 'trigger': return ctx ? ctx.trigger || '' : '';
       case 'trigger_info': return ctx ? ctx.triggerInfo || '' : '';
       case 'iteration': return ctx ? ctx.iteration || 0 : 0;
-      case 'not_app': case 'not_package': case 'not_title': case 'not_text': case 'app_name': case 'app_package':
+      case 'not_app': case 'not_package': case 'not_title': case 'not_text': case 'app_name': case 'app_package': case 'bt_device':
         return ctx && ctx.data && ctx.data[key] !== undefined ? ctx.data[key] : '';
       case 'device': return (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
       case 'newline': return '\n';

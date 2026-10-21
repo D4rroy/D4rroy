@@ -191,6 +191,23 @@
     },
   });
 
+  T('bluetooth', {
+    name: 'Bluetooth-Gerät verbunden/getrennt', icon: 'bluetooth_connected', cat: 'connectivity', supported: nativeOnly, needs: ['bluetooth'],
+    help: 'Löst aus, wenn sich ein Bluetooth-Gerät verbindet oder trennt – z. B. Kopfhörer oder Auto. Magic Text: {bt_device}.',
+    params: [
+      { key: 'state', label: 'Ereignis', type: 'select', options: [['connected', 'Verbunden'], ['disconnected', 'Getrennt']], default: 'connected' },
+      { key: 'device', label: 'Gerätename (leer = jedes Gerät)', type: 'text', default: '' },
+    ],
+    describe: (p) => `${p.device || 'Jedes Gerät'} ${p.state === 'connected' ? 'verbunden' : 'getrennt'}`,
+    start(p, fire) {
+      return MS.bus.on('bluetooth', ({ connected, name, address }) => {
+        if (connected !== (p.state === 'connected')) return;
+        if (p.device && !String(name).toLowerCase().includes(String(p.device).toLowerCase())) return;
+        fire({ info: name || address, data: { bt_device: name || address } });
+      });
+    },
+  });
+
   T('app_launch', {
     name: 'Makro Studio gestartet', icon: 'rocket_launch', cat: 'device',
     help: 'Löst einmal aus, wenn die App geöffnet wird (vergleichbar mit „Gerät gestartet“).',
@@ -1005,6 +1022,15 @@
     run: (ctx, p) => MS.native.setRingerMode(p.mode),
   });
 
+  const MEDIA = [['play_pause', 'Wiedergabe/Pause'], ['play', 'Wiedergabe'], ['pause', 'Pause'], ['next', 'Nächster Titel'], ['previous', 'Vorheriger Titel'], ['stop', 'Stopp']];
+  A('media_control', {
+    name: 'Mediensteuerung', icon: 'play_pause', cat: 'audio', supported: nativeOnly,
+    help: 'Sendet eine Medientaste an die gerade aktive Musik- oder Video-App.',
+    params: [{ key: 'action', label: 'Befehl', type: 'select', options: MEDIA, default: 'play_pause' }],
+    describe: (p) => opt(MEDIA, p.action),
+    run: (ctx, p) => MS.native.mediaControl(p.action),
+  });
+
   const DND = [['off', 'Aus'], ['priority', 'Nur wichtige Unterbrechungen'], ['alarms', 'Nur Wecker'], ['none', 'Absolute Ruhe']];
   A('dnd', {
     name: 'Bitte nicht stören', icon: 'do_not_disturb_on', cat: 'audio', supported: nativeOnly, needs: ['dnd'],
@@ -1247,6 +1273,12 @@
     describe: (p) => `${appName(p)} ist geöffnet`,
     check: (ctx, p) => MS.native.available && MS.native.foregroundApp() === p.app,
   });
+  C('music_active', {
+    name: 'Musik läuft', icon: 'music_note', cat: 'device', supported: nativeOnly,
+    params: [{ key: 'state', label: 'Musik', type: 'select', options: [['yes', 'Wird abgespielt'], ['no', 'Wird nicht abgespielt']], default: 'yes' }],
+    describe: (p) => (p.state === 'yes' ? 'Musik läuft' : 'Keine Musik'),
+    check: (ctx, p) => MS.native.available && MS.native.isMusicActive() === (p.state === 'yes'),
+  });
   C('ringer_state', {
     name: 'Klingelmodus', icon: 'notifications_paused', cat: 'device', supported: nativeOnly,
     params: [{ key: 'mode', label: 'Klingelmodus ist', type: 'select', options: RINGER, default: 'silent' }],
@@ -1258,6 +1290,14 @@
     params: [{ key: 'state', label: 'Bitte nicht stören ist', type: 'select', options: [['on', 'An'], ['off', 'Aus']], default: 'on' }],
     describe: (p) => `Nicht stören ${p.state === 'on' ? 'an' : 'aus'}`,
     check: (ctx, p) => MS.native.available && MS.native.isDndOn() === (p.state === 'on'),
+  });
+
+  C('trigger_fired', {
+    name: 'Auslösender Auslöser', icon: 'bolt', cat: 'app',
+    help: 'Erfüllt, wenn das Makro durch den gewählten Auslöser gestartet wurde. Praktisch bei Makros mit mehreren Auslösern (in Wenn-Blöcken).',
+    params: [{ key: 'trigger', label: 'Auslöser', type: 'trigger', required: true }],
+    describe: (p) => 'Ausgelöst durch ' + (p.triggerLabel || 'gewählten Auslöser'),
+    check: (ctx, p) => !!ctx && ctx.triggerId === p.trigger,
   });
 
   C('macro_state', {

@@ -397,6 +397,22 @@
           sel.addEventListener('change', () => set(sel.value));
           return field(f.label, sel);
         }
+        case 'trigger': {
+          const list = ctx.triggers || [];
+          const sel = h('select', { class: 'input' },
+            h('option', { value: '' }, list.length ? '— Auslöser wählen —' : 'Dieses Makro hat noch keine Auslöser'),
+            list.map((t, i) => {
+              const d = MS.catalog.triggers[t.type];
+              return h('option', { value: t.id }, `${i + 1}. ${d ? d.name : t.type}: ${MS.catalog.describe('trigger', t)}`);
+            }));
+          sel.value = p[f.key] || '';
+          sel.addEventListener('change', () => {
+            set(sel.value);
+            const t = list.find((x) => x.id === sel.value);
+            p[f.key + 'Label'] = t ? (MS.catalog.triggers[t.type] || { name: t.type }).name + ': ' + MS.catalog.describe('trigger', t) : '';
+          });
+          return field(f.label, sel);
+        }
         case 'block': {
           const sel = h('select', { class: 'input' },
             h('option', { value: '' }, '— Action Block wählen —'),

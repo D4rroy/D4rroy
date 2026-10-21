@@ -463,3 +463,13 @@ select.input { appearance: auto; }
   .guide h2 { break-after: avoid; }
   .guide-table tr { break-inside: avoid; }
 }
+
+/* ---------------------------------------------------------------- Import-Bericht */
+.import-report { display: flex; flex-direction: column; gap: 10px; }
+.import-item { padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
+.import-name { display: flex; align-items: center; gap: 8px; }
+.import-name .mi { font-size: 18px; color: var(--trigger); }
+.import-counts { color: var(--text-2); font-size: 13px; margin: 2px 0 0 26px; }
+.import-missing { margin: 6px 0 0 26px; color: var(--danger); font-size: 13px; }
+.import-missing span { font-weight: 500; }
+.import-check { margin: 6px 0 0 26px; padding-left: 16px; color: var(--warn-text); font-size: 13px; }

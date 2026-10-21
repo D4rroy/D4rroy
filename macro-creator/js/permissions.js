@@ -66,6 +66,15 @@
       ],
     },
     {
+      key: 'bluetooth', title: 'Geräte in der Nähe (Bluetooth)', icon: 'bluetooth', minSdk: 31,
+      why: 'Damit Makros erkennen, wenn sich ein Bluetooth-Gerät (Kopfhörer, Auto, Uhr) verbindet oder trennt.',
+      uses: ['Bluetooth-Gerät verbunden/getrennt'],
+      steps: [
+        'Auf „Einrichten“ tippen und „Zulassen“ wählen.',
+        `Manuell: ${APP} → Berechtigungen → Geräte in der Nähe → „Zulassen“.`,
+      ],
+    },
+    {
       key: 'dnd', title: '„Bitte nicht stören“-Zugriff', icon: 'do_not_disturb_on',
       why: 'Erlaubt Makros, „Bitte nicht stören“ zu schalten und das Telefon lautlos zu stellen.',
       uses: ['Nicht stören', 'Klingelmodus (Lautlos)', 'Lautstärke (Klingelton auf 0)'],

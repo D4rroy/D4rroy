@@ -53,7 +53,8 @@
 
   function pickFile() {
     return new Promise((resolve) => {
-      const input = h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' } });
+      // In der Android-App keinen Dateityp vorgeben, sonst blendet die Dateiauswahl .macro-Dateien aus
+      const input = h('input', { type: 'file', accept: MS.native.available ? null : '.json,.macro,.mdr,application/json', style: { display: 'none' } });
       input.addEventListener('change', () => {
         const f = input.files[0];
         input.remove();
@@ -70,7 +71,8 @@
     if (!text) return;
     let data;
     try { data = JSON.parse(text); } catch (e) { ui.alert('Import fehlgeschlagen', 'Die Datei ist kein gültiges JSON.'); return; }
-    if (!data || (!Array.isArray(data.macros) && !Array.isArray(data.blocks))) { ui.alert('Import fehlgeschlagen', 'Keine Makros in der Datei gefunden.'); return; }
+    if (MS.macrodroid.isMacroDroid(data)) { importMacroDroid(data); return; }
+    if (!data || (!Array.isArray(data.macros) && !Array.isArray(data.blocks))) { ui.alert('Import fehlgeschlagen', 'Keine Makros in der Datei gefunden. Unterstützt werden Makro Studio-Exporte (.json) und MacroDroid-Dateien (.macro).'); return; }
     // Kollidierende IDs neu vergeben und Verweise anpassen
     const taken = new Set([...S().macros, ...S().blocks].map((x) => x.id));
     let json = JSON.stringify({ macros: data.macros || [], blocks: data.blocks || [] });
@@ -87,6 +89,35 @@
     ui.toast(`${macros.length} Makro(s) und ${blocks.length} Action Block(s) importiert`);
   }
   views.importData = importData;
+
+  /** Import aus MacroDroid mit Bericht, was übernommen wurde. */
+  async function importMacroDroid(data) {
+    let res;
+    try { res = MS.macrodroid.convert(data); } catch (e) { ui.alert('Import fehlgeschlagen', 'Die MacroDroid-Datei konnte nicht gelesen werden: ' + e.message); return; }
+    const total = res.report.reduce((n, x) => n + x.missing.length + x.check.length, 0);
+    const ok = await ui.modal({
+      title: 'MacroDroid-Import',
+      content: h('div', { class: 'import-report' },
+        h('p', { class: 'dialog-help' }, `${res.macros.length} Makro${res.macros.length === 1 ? '' : 's'}`
+          + (res.blocks.length ? `, ${res.blocks.length} Action Block${res.blocks.length === 1 ? '' : 's'}` : '')
+          + (res.variables.length ? `, ${res.variables.length} globale Variable${res.variables.length === 1 ? '' : 'n'}` : '')
+          + (total ? '. Nicht alles lässt sich 1:1 übertragen – Details unten.' : '. Alles konnte übernommen werden.')),
+        res.report.map((x) => h('div', { class: 'import-item' },
+          h('div', { class: 'import-name' }, icon(x.block ? 'widgets' : 'bolt'), h('strong', null, x.name)),
+          h('div', { class: 'import-counts' }, `${x.triggers} Auslöser · ${x.actions} Aktionen · ${x.constraints} Bedingungen`),
+          x.missing.length ? h('div', { class: 'import-missing' }, h('span', null, 'Nicht übernommen: '), [...new Set(x.missing)].join(', ')) : null,
+          x.check.length ? h('ul', { class: 'import-check' }, x.check.map((c) => h('li', null, c))) : null))),
+      buttons: [{ label: 'Abbrechen', value: false }, { label: 'Importieren', value: true, primary: true }],
+    });
+    if (!ok) return;
+    for (const v of res.variables) if (!S().variables.some((x) => x.name === v.name)) S().variables.push(v);
+    res.blocks.forEach((b) => S().blocks.push(b));
+    res.macros.forEach((m) => { S().macros.push(m); MS.store.ensureCategory(m.category); });
+    MS.store.changed('all');
+    ui.toast(`${res.macros.length} MacroDroid-Makro${res.macros.length === 1 ? '' : 's'} importiert`, 2500, 'check_circle');
+    if (res.macros.length === 1) go('#/macro/' + res.macros[0].id);
+    else go('#/macros');
+  }
 
   // ================================================================= START
   const TILES = [
@@ -327,7 +358,7 @@
     let savedJson = stored ? JSON.stringify(draft) : '';
     let isNew = !stored;
     const dirty = () => JSON.stringify(draft) !== savedJson;
-    const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id });
+    const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id, triggers: draft.triggers || [] });
     let root, keyHandler;
 
     function save() {

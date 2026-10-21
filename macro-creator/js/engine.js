@@ -116,7 +116,7 @@
       const m = MS.store.macro(macroId);
       if (!m || !m.enabled || !MS.store.state.settings.enabled) return;
       const d = cat().triggers[trigger.type];
-      this.runMacro(m, { trigger: d ? d.name : trigger.type, info: info.info, data: info.data });
+      this.runMacro(m, { trigger: d ? d.name : trigger.type, triggerId: trigger.id, info: info.info, data: info.data });
     },
 
     // ---------------------------------------------------------- Bedingungen
@@ -143,6 +143,7 @@
         macroName: macro.name || 'Unbenannt',
         trigger: opts.trigger || 'Manuell',
         triggerInfo: opts.info || '',
+        triggerId: opts.triggerId || null,
         data: opts.data || {},
         locals: opts.locals || macro.localVars || [],
         token: opts.token || { cancelled: false },
@@ -194,6 +195,7 @@
         depth: parentCtx.depth + 1,
         trigger: parentCtx.trigger,
         info: parentCtx.triggerInfo,
+        triggerId: parentCtx.triggerId,
         data: parentCtx.data,
       });
       ctx.macroName = parentCtx.macroName + ' › ' + (block.name || 'Block');

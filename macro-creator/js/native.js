@@ -29,6 +29,7 @@
     // ---- Ereignisse von Android
     _battery(level, charging) { MS.device.setBattery({ level, charging }); },
     _notification(n) { MS.bus.emit('notification-posted', n); },
+    _bluetooth(connected, name, address) { MS.bus.emit('bluetooth', { connected, name, address }); },
     _appChanged(pkg, label, prev) {
       MS.device.foregroundApp = pkg;
       MS.bus.emit('app-changed', { pkg, label, prev });
@@ -57,6 +58,8 @@
     getRingerMode: () => A.getRingerMode(),
     setDnd: (mode) => check(A.setDnd(mode)),
     isDndOn: () => A.isDndOn(),
+    mediaControl: (action) => check(A.mediaControl(action)),
+    isMusicActive: () => A.isMusicActive(),
     copy: (text) => A.copy(String(text)),
     share: (title, text) => A.share(String(title), String(text)),
     openUrl: (url) => check(A.openUrl(String(url))),
