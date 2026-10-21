@@ -1,9 +1,9 @@
 /* Makro Studio – Service Worker: Offline-Cache (Stale-While-Revalidate) und Benachrichtigungsklicks. */
-const CACHE = 'makrostudio-v3';
+const CACHE = 'makrostudio-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/fonts.css', 'css/style.css',
   'fonts/material-symbols-rounded.woff2', 'fonts/roboto-latin.woff2', 'fonts/roboto-latin-ext.woff2',
-  'js/core.js', 'js/native.js', 'js/catalog.js', 'js/engine.js', 'js/ui.js', 'js/templates.js', 'js/views.js', 'js/app.js',
+  'js/core.js', 'js/native.js', 'js/permissions.js', 'js/catalog.js', 'js/engine.js', 'js/ui.js', 'js/templates.js', 'js/views.js', 'js/app.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

@@ -61,11 +61,15 @@
     { id: 'device', name: 'Geräteereignisse', icon: 'smartphone' },
     { id: 'sensors', name: 'Sensoren', icon: 'sensors' },
     { id: 'location', name: 'Standort', icon: 'location_on' },
+    { id: 'apps', name: 'Apps & Benachrichtigungen', icon: 'apps' },
     { id: 'app', name: 'Makro Studio', icon: 'bolt' },
   ];
   const hasBattery = () => MS.native.available || 'getBattery' in navigator;
   const hasMotion = () => 'DeviceMotionEvent' in window;
   const hasGeo = () => 'geolocation' in navigator;
+  /** Nur in der Android-App verfügbar. */
+  const nativeOnly = () => MS.native.available;
+  const appName = (p, key = 'app') => p[key + 'Label'] || p[key] || '(keine App gewählt)';
 
   T('time', {
     name: 'Tageszeit', icon: 'schedule', cat: 'datetime',
@@ -247,7 +251,7 @@
   });
 
   T('geofence', {
-    name: 'Geofence (Ort betreten/verlassen)', icon: 'share_location', cat: 'location', supported: hasGeo,
+    name: 'Geofence (Ort betreten/verlassen)', icon: 'share_location', cat: 'location', supported: hasGeo, needs: ['location', 'background_location'],
     help: 'Löst aus, wenn du einen Bereich um einen Ort betrittst oder verlässt. Die App benötigt dafür die Standortfreigabe.',
     params: [
       { key: 'event', label: 'Ereignis', type: 'select', options: [['enter', 'Bereich betreten'], ['exit', 'Bereich verlassen']], default: 'enter' },
@@ -318,6 +322,49 @@
     },
   });
 
+  T('boot', {
+    name: 'Gerät gestartet', icon: 'restart_alt', cat: 'device', supported: nativeOnly,
+    help: 'Löst nach dem Neustart des Handys aus. Dafür in den Einstellungen „Hintergrunddienst“ und „Beim Gerätestart starten“ einschalten.',
+    describe: () => 'Nach dem Neustart',
+    start(p, fire) { return MS.bus.on('device-boot', () => fire({ info: 'Gerätestart' })); },
+  });
+
+  T('app_changed', {
+    name: 'App geöffnet/geschlossen', icon: 'open_in_new', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Löst aus, wenn eine bestimmte App in den Vordergrund kommt oder verlassen wird. Benötigt die Bedienungshilfe. Magic Text: {app_name}, {app_package}.',
+    params: [
+      { key: 'event', label: 'Ereignis', type: 'select', options: [['open', 'App geöffnet'], ['close', 'App geschlossen']], default: 'open' },
+      { key: 'app', label: 'App', type: 'app', required: true },
+    ],
+    describe: (p) => `${appName(p)} ${p.event === 'open' ? 'geöffnet' : 'geschlossen'}`,
+    start(p, fire) {
+      return MS.bus.on('app-changed', ({ pkg, label, prev }) => {
+        const hit = p.event === 'open' ? pkg === p.app && prev !== p.app : prev === p.app && pkg !== p.app;
+        if (hit) fire({ info: p.appLabel || p.app, data: { app_name: p.appLabel || label, app_package: p.app } });
+      });
+    },
+  });
+
+  T('notification_received', {
+    name: 'Benachrichtigung empfangen', icon: 'mark_chat_unread', cat: 'apps', supported: nativeOnly, needs: ['notification_listener'],
+    help: 'Löst aus, wenn eine andere App eine Benachrichtigung anzeigt. Benötigt den Benachrichtigungszugriff. Magic Text: {not_app}, {not_title}, {not_text}.',
+    params: [
+      { key: 'anyApp', label: 'Von jeder App', type: 'bool', default: true },
+      { key: 'app', label: 'Nur von dieser App', type: 'app', showIf: (p) => !p.anyApp },
+      { key: 'contains', label: 'Titel oder Text enthält (optional)', type: 'text', default: '' },
+      { key: 'ignoreOngoing', label: 'Dauerhafte Benachrichtigungen ignorieren (Musik, Downloads …)', type: 'bool', default: true },
+    ],
+    describe: (p) => `${p.anyApp ? 'Jede App' : appName(p)}${p.contains ? ` · enthält „${p.contains}“` : ''}`,
+    start(p, fire) {
+      return MS.bus.on('notification-posted', (n) => {
+        if (p.ignoreOngoing && n.ongoing) return;
+        if (!p.anyApp && n.pkg !== p.app) return;
+        if (p.contains && !(n.title + ' ' + n.text).toLowerCase().includes(String(p.contains).toLowerCase())) return;
+        fire({ info: `${n.app}: ${n.title}`, data: { not_app: n.app, not_package: n.pkg, not_title: n.title, not_text: n.text } });
+      });
+    },
+  });
+
   T('empty', {
     name: 'Leerer Auslöser', icon: 'radio_button_unchecked', cat: 'app',
     help: 'Löst nie selbst aus. Das Makro kann über „Makro ausführen“ oder manuell gestartet werden.',
@@ -354,7 +401,7 @@
   }
 
   A('notification', {
-    name: 'Benachrichtigung anzeigen', icon: 'notifications_active', cat: 'notify',
+    name: 'Benachrichtigung anzeigen', icon: 'notifications_active', cat: 'notify', needs: ['notifications'],
     help: 'Zeigt eine System-Benachrichtigung. Ohne Berechtigung erscheint eine Einblendung in der App.',
     params: [
       { key: 'title', label: 'Titel', type: 'text', magic: true, default: 'Makro Studio' },
@@ -630,7 +677,7 @@
     } else location.href = url;
   }
   A('open_url', {
-    name: 'Website öffnen', icon: 'open_in_browser', cat: 'apps',
+    name: 'Website öffnen', icon: 'open_in_browser', cat: 'apps', needs: ['overlay|accessibility'],
     help: 'Öffnet eine Adresse im Browser. App-Links (z. B. spotify:, whatsapp:) öffnen die passende App.',
     params: [
       { key: 'url', label: 'Adresse', type: 'text', magic: true, default: 'https://', required: true },
@@ -722,7 +769,7 @@
   });
 
   A('get_location', {
-    name: 'Standort abrufen', icon: 'my_location', cat: 'web', supported: hasGeo,
+    name: 'Standort abrufen', icon: 'my_location', cat: 'web', supported: hasGeo, needs: ['location'],
     help: 'Ermittelt die aktuelle Position. Danach sind {lat} und {lon} verfügbar; optional in Variablen speichern.',
     params: [
       { key: 'latVar', label: 'Breitengrad speichern in', type: 'var', varTypes: ['decimal', 'string'], optional: true },
@@ -919,6 +966,65 @@
     },
   });
 
+  // --- Android-Systemfunktionen (nur APK)
+  A('launch_app', {
+    name: 'App starten', icon: 'launch', cat: 'apps', supported: nativeOnly, needs: ['overlay|accessibility'],
+    help: 'Öffnet eine installierte App. Aus dem Hintergrund benötigt Android dafür die Bedienungshilfe oder „Über anderen Apps einblenden“.',
+    params: [{ key: 'app', label: 'App', type: 'app', required: true }],
+    describe: (p) => appName(p),
+    run: (ctx, p) => MS.native.launchApp(p.app),
+  });
+
+  const SYSTEM_ACTIONS = [['back', 'Zurück'], ['home', 'Startbildschirm'], ['recents', 'Letzte Apps'], ['notifications', 'Benachrichtigungen öffnen'], ['quick_settings', 'Schnelleinstellungen öffnen'], ['lock_screen', 'Bildschirm sperren'], ['screenshot', 'Screenshot'], ['power_dialog', 'Ein/Aus-Menü']];
+  A('system_action', {
+    name: 'Systemaktion', icon: 'smart_button', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Führt eine Systemtaste oder -funktion aus. Benötigt die Bedienungshilfe.',
+    params: [{ key: 'action', label: 'Aktion', type: 'select', options: SYSTEM_ACTIONS, default: 'home' }],
+    describe: (p) => opt(SYSTEM_ACTIONS, p.action),
+    run: (ctx, p) => MS.native.systemAction(p.action),
+  });
+
+  const STREAMS = [['media', 'Medien'], ['ring', 'Klingelton'], ['notification', 'Benachrichtigungen'], ['alarm', 'Wecker'], ['call', 'Anrufe'], ['system', 'System']];
+  A('volume', {
+    name: 'Lautstärke einstellen', icon: 'volume_up', cat: 'audio', supported: nativeOnly,
+    help: 'Setzt die Lautstärke eines Audiokanals in Prozent. Klingelton auf 0 % benötigt den „Bitte nicht stören“-Zugriff.',
+    params: [
+      { key: 'stream', label: 'Kanal', type: 'select', options: STREAMS, default: 'media' },
+      { key: 'percent', label: 'Lautstärke in %', type: 'number', min: 0, max: 100, default: 50 },
+    ],
+    describe: (p) => `${opt(STREAMS, p.stream)}: ${p.percent} %`,
+    run: (ctx, p) => MS.native.setVolume(p.stream, Number(p.percent)),
+  });
+
+  const RINGER = [['normal', 'Klingeln'], ['vibrate', 'Vibrieren'], ['silent', 'Lautlos']];
+  A('ringer_mode', {
+    name: 'Klingelmodus', icon: 'notifications_paused', cat: 'audio', supported: nativeOnly, needs: ['dnd'],
+    help: 'Stellt das Telefon auf Klingeln, Vibrieren oder Lautlos. „Lautlos“ benötigt den „Bitte nicht stören“-Zugriff.',
+    params: [{ key: 'mode', label: 'Modus', type: 'select', options: RINGER, default: 'vibrate' }],
+    describe: (p) => opt(RINGER, p.mode),
+    run: (ctx, p) => MS.native.setRingerMode(p.mode),
+  });
+
+  const DND = [['off', 'Aus'], ['priority', 'Nur wichtige Unterbrechungen'], ['alarms', 'Nur Wecker'], ['none', 'Absolute Ruhe']];
+  A('dnd', {
+    name: 'Bitte nicht stören', icon: 'do_not_disturb_on', cat: 'audio', supported: nativeOnly, needs: ['dnd'],
+    help: 'Schaltet „Bitte nicht stören“. Benötigt den „Bitte nicht stören“-Zugriff.',
+    params: [{ key: 'mode', label: 'Modus', type: 'select', options: DND, default: 'priority' }],
+    describe: (p) => opt(DND, p.mode),
+    run: (ctx, p) => MS.native.setDnd(p.mode),
+  });
+
+  A('brightness', {
+    name: 'Bildschirmhelligkeit', icon: 'brightness_6', cat: 'device', supported: nativeOnly, needs: ['write_settings'],
+    help: 'Stellt die Helligkeit ein oder schaltet die automatische Helligkeit ein. Benötigt „Systemeinstellungen ändern“.',
+    params: [
+      { key: 'auto', label: 'Automatische Helligkeit', type: 'bool', default: false },
+      { key: 'percent', label: 'Helligkeit in %', type: 'number', min: 0, max: 100, default: 50, showIf: (p) => !p.auto },
+    ],
+    describe: (p) => (p.auto ? 'Automatisch' : p.percent + ' %'),
+    run: (ctx, p) => MS.native.setBrightness(Number(p.percent), p.auto),
+  });
+
   // --- Makro Studio
   A('run_macro', {
     name: 'Makro ausführen', icon: 'play_circle', cat: 'macro',
@@ -1108,7 +1214,7 @@
   });
 
   C('geofence', {
-    name: 'Ort', icon: 'share_location', cat: 'location', supported: hasGeo,
+    name: 'Ort', icon: 'share_location', cat: 'location', supported: hasGeo, needs: ['location'],
     help: 'Verwendet die zuletzt bekannte Position. Ohne bekannte Position ist die Bedingung nicht erfüllt.',
     params: [
       { key: 'state', label: 'Gerät ist', type: 'select', options: [['inside', 'Innerhalb'], ['outside', 'Außerhalb']], default: 'inside' },
@@ -1134,6 +1240,26 @@
     describe: (p) => `${varName(p.var)} ${opt(MS.COMPARE_OPS, p.op)} ${p.value}`,
     check: (ctx, p) => MS.compare(MS.vars.get(p.var, ctx), p.op, M(p.value, ctx)),
   });
+  C('foreground_app', {
+    name: 'App im Vordergrund', icon: 'open_in_new', cat: 'device', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Erfüllt, wenn die gewählte App gerade geöffnet ist. Benötigt die Bedienungshilfe.',
+    params: [{ key: 'app', label: 'App', type: 'app', required: true }],
+    describe: (p) => `${appName(p)} ist geöffnet`,
+    check: (ctx, p) => MS.native.available && MS.native.foregroundApp() === p.app,
+  });
+  C('ringer_state', {
+    name: 'Klingelmodus', icon: 'notifications_paused', cat: 'device', supported: nativeOnly,
+    params: [{ key: 'mode', label: 'Klingelmodus ist', type: 'select', options: RINGER, default: 'silent' }],
+    describe: (p) => `Klingelmodus: ${opt(RINGER, p.mode)}`,
+    check: (ctx, p) => MS.native.available && MS.native.getRingerMode() === p.mode,
+  });
+  C('dnd_state', {
+    name: 'Bitte nicht stören aktiv', icon: 'do_not_disturb_on', cat: 'device', supported: nativeOnly,
+    params: [{ key: 'state', label: 'Bitte nicht stören ist', type: 'select', options: [['on', 'An'], ['off', 'Aus']], default: 'on' }],
+    describe: (p) => `Nicht stören ${p.state === 'on' ? 'an' : 'aus'}`,
+    check: (ctx, p) => MS.native.available && MS.native.isDndOn() === (p.state === 'on'),
+  });
+
   C('macro_state', {
     name: 'Makro aktiviert', icon: 'toggle_on', cat: 'app',
     params: [

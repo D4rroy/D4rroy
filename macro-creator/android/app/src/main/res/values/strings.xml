@@ -3,4 +3,9 @@
     <string name="app_name">Makro Studio</string>
     <string name="channel_name">Makro-Benachrichtigungen</string>
     <string name="channel_description">Benachrichtigungen, die von deinen Makros angezeigt werden</string>
+    <string name="service_channel_name">Hintergrunddienst</string>
+    <string name="service_channel_description">Daueranzeige, solange Makro Studio im Hintergrund läuft</string>
+    <string name="service_title">Makro Studio läuft</string>
+    <string name="accessibility_label">Makro Studio</string>
+    <string name="accessibility_description">Makro Studio nutzt die Bedienungshilfe, um zu erkennen, welche App geöffnet ist (Auslöser „App geöffnet/geschlossen“), um Systemaktionen wie Zurück, Startbildschirm, Bildschirm sperren oder Screenshot auszuführen und um Apps aus dem Hintergrund zu öffnen. Bildschirminhalte werden nicht gelesen und keine Daten verlassen das Gerät.</string>
 </resources>

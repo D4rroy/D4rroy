@@ -14,6 +14,8 @@
     [/^#\/block\/([\w-]+)$/, (id) => MS.views.editor(id, 'block')],
     [/^#\/log$/, () => MS.views.log()],
     [/^#\/settings$/, () => MS.views.settings()],
+    [/^#\/permissions$/, () => MS.views.permissions()],
+    [/^#\/guide$/, () => MS.views.guide()],
   ];
 
   let current = null, lastHash = location.hash, ignoreNext = false;
@@ -119,6 +121,16 @@
   MS.device.init().finally(() => {
     MS.engine.start();
     MS.bus.emit('app-start');
+    if (MS.native.available) {
+      if (MS.native.startedByBoot()) MS.bus.emit('device-boot');
+      // Daueranzeige des Hintergrunddienstes aktuell halten
+      const status = () => {
+        const n = MS.store.state.macros.filter((m) => m.enabled).length;
+        MS.native.serviceStatus(MS.store.state.settings.enabled ? `${n} Makro${n === 1 ? '' : 's'} aktiv` : 'Pausiert – alle Makros aus');
+      };
+      status();
+      MS.bus.on('store', status);
+    }
     if (startRun) MS.bus.emit('shortcut', startRun[1]);
   });
   if (MS.store.state.settings.keepAwake) MS.catalog.setWake(true).catch(() => {});

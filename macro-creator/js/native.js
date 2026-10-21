@@ -10,6 +10,7 @@
   }
   const pending = {};
   let next = 0;
+  let appList = null;
   /** Ruft eine Android-Methode auf, die ihr Ergebnis später über _resolve meldet. */
   const call = (fn, ...args) => new Promise((resolve) => {
     const id = 'c' + ++next;
@@ -25,12 +26,18 @@
       delete pending[id];
       if (r) r(value);
     },
-    /** Wird von Android bei jeder Akkuänderung aufgerufen. */
+    // ---- Ereignisse von Android
     _battery(level, charging) { MS.device.setBattery({ level, charging }); },
+    _notification(n) { MS.bus.emit('notification-posted', n); },
+    _appChanged(pkg, label, prev) {
+      MS.device.foregroundApp = pkg;
+      MS.bus.emit('app-changed', { pkg, label, prev });
+    },
+
+    // ---- Gerät
     battery: () => JSON.parse(A.battery()),
     notify: (title, text) => A.showNotification(String(title), String(text)),
     notificationsAllowed: () => A.notificationsAllowed(),
-    requestPermission: (which) => call('requestPermission', which),
     vibrate: (pattern) => A.vibrate(pattern.join(',')),
     speak(text, lang, rate, pitch, wait) {
       if (wait) return call('speak', String(text), lang, rate, pitch);
@@ -43,9 +50,32 @@
     keepScreenOn: (on) => A.keepScreenOn(on),
     fullscreen: (on) => A.fullscreen(on),
     isFullscreen: () => A.isFullscreen(),
+    setBrightness: (percent, auto) => check(A.setBrightness(Math.round(percent), !!auto)),
+    setVolume: (stream, percent) => check(A.setVolume(stream, Math.round(percent))),
+    getVolume: (stream) => A.getVolume(stream),
+    setRingerMode: (mode) => check(A.setRingerMode(mode)),
+    getRingerMode: () => A.getRingerMode(),
+    setDnd: (mode) => check(A.setDnd(mode)),
+    isDndOn: () => A.isDndOn(),
     copy: (text) => A.copy(String(text)),
     share: (title, text) => A.share(String(title), String(text)),
     openUrl: (url) => check(A.openUrl(String(url))),
     saveFile: (name, content) => A.saveFile(String(name), String(content)),
+
+    // ---- Apps & Bedienungshilfe
+    apps() {
+      if (!appList) appList = JSON.parse(A.apps());
+      return appList;
+    },
+    launchApp: (pkg) => check(A.launchApp(String(pkg))),
+    foregroundApp: () => A.foregroundApp(),
+    systemAction: (action) => check(A.systemAction(action)),
+
+    // ---- Berechtigungen & Hintergrund
+    permissions: () => JSON.parse(A.permissions()),
+    requestPermission: (which) => call('requestPermission', which),
+    setBackground: (key, on) => A.setBackground(key, !!on),
+    serviceStatus: (text) => A.serviceStatus(String(text)),
+    startedByBoot: () => A.startedByBoot(),
   };
 })();

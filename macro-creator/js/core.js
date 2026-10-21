@@ -349,6 +349,7 @@
     visible: document.visibilityState === 'visible',
     orientation: portrait(),
     faceDown: null,
+    foregroundApp: '',
     position: null, // { lat, lon, acc, t }
     lastMotion: null,
     geoUsers: 0,
@@ -468,7 +469,9 @@
       ['{battery}', 'Akkustand in %'], ['{charging}', 'Lädt (ja/nein)'], ['{online}', 'Online (ja/nein)'],
       ['{lat}', 'Breitengrad'], ['{lon}', 'Längengrad'],
       ['{macro_name}', 'Makroname'], ['{trigger}', 'Auslöser'], ['{trigger_info}', 'Auslöser-Details'],
-      ['{iteration}', 'Schleifendurchlauf'], ['{random=1-100}', 'Zufallszahl (min-max)'], ['{device}', 'Plattform'],
+      ['{iteration}', 'Schleifendurchlauf'],
+      ['{not_app}', 'Benachrichtigung: App'], ['{not_title}', 'Benachrichtigung: Titel'], ['{not_text}', 'Benachrichtigung: Text'],
+      ['{app_name}', 'Geöffnete App'], ['{app_package}', 'Paketname der App'], ['{random=1-100}', 'Zufallszahl (min-max)'], ['{device}', 'Plattform'],
       ['{newline}', 'Zeilenumbruch'],
     ],
     apply(text, ctx) {
@@ -504,6 +507,8 @@
       case 'trigger': return ctx ? ctx.trigger || '' : '';
       case 'trigger_info': return ctx ? ctx.triggerInfo || '' : '';
       case 'iteration': return ctx ? ctx.iteration || 0 : 0;
+      case 'not_app': case 'not_package': case 'not_title': case 'not_text': case 'app_name': case 'app_package':
+        return ctx && ctx.data && ctx.data[key] !== undefined ? ctx.data[key] : '';
       case 'device': return (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
       case 'newline': return '\n';
       case 'random': {

@@ -404,3 +404,62 @@ select.input { appearance: auto; }
 .flash-overlay { position: fixed; inset: 0; z-index: 100; opacity: 0; pointer-events: none; transition: opacity .12s; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ---------------------------------------------------------------- Berechtigungen */
+.perm-banner {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 12px; padding: 12px 14px; border: 0; border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn-text); text-align: left; box-shadow: var(--shadow);
+}
+.perm-banner.ok { background: color-mix(in srgb, var(--constraint) 14%, var(--surface)); color: var(--constraint); }
+.perm-banner-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.perm-banner-text span { font-size: 13px; opacity: .85; }
+.perm-summary { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; color: var(--text-2); font-size: 14px; }
+.perm-progress { height: 8px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.perm-progress span { display: block; height: 100%; background: var(--constraint); border-radius: inherit; }
+.perm-list { display: flex; flex-direction: column; gap: 12px; }
+.perm-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; border-left: 4px solid var(--danger); }
+.perm-card.ok { border-left-color: var(--constraint); }
+.perm-head { display: flex; align-items: center; gap: 12px; }
+.perm-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); flex: none; }
+.perm-card.ok .perm-icon { background: color-mix(in srgb, var(--constraint) 16%, transparent); color: var(--constraint); }
+.perm-title { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.perm-status { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--danger); font-weight: 500; }
+.perm-status .mi { font-size: 16px; }
+.perm-card.ok .perm-status { color: var(--constraint); }
+.perm-why { margin: 10px 0 4px; font-size: 14px; }
+.perm-uses { margin: 0 0 6px; font-size: 13px; color: var(--text-2); }
+.perm-steps summary { cursor: pointer; color: var(--action); font-weight: 500; font-size: 14px; padding: 4px 0; }
+.perm-steps ol { margin: 6px 0 0; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.perm-restricted { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.perm-restricted p { margin: 0 0 8px; }
+.btn-small-tonal { min-height: 32px; padding: 0 12px; font-size: 13px; background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); }
+.perm-hint { flex-direction: row; }
+.perm-hint-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.badge.perm { background: #f5a524; }
+.vendor-tip p { margin: 4px 0 0; }
+
+/* ---------------------------------------------------------------- Anleitung */
+.guide { max-width: 760px; }
+.guide section { margin-bottom: 22px; }
+.guide h1 { font-size: 26px; margin: 4px 0 6px; text-wrap: balance; }
+.guide h2 { font-size: 19px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+.guide h3 { font-size: 16px; margin: 14px 0 4px; }
+.guide p, .guide li { line-height: 1.55; }
+.guide ol, .guide ul { padding-left: 22px; margin: 6px 0; }
+.guide-head p { color: var(--text-2); margin: 0 0 18px; }
+.guide-note { font-weight: 400; color: var(--text-2); font-size: 14px; }
+.guide-uses { font-size: 14px; color: var(--text-2); margin: 2px 0; }
+.guide-perm { padding: 2px 0 6px; break-inside: avoid; }
+.table-wrap { overflow-x: auto; }
+.guide-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.guide-table th, .guide-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.guide-table th { font-weight: 500; color: var(--text-2); }
+
+@media print {
+  :root { --bg: #fff; --surface: #fff; --text: #111; --text-2: #444; --line: #ccc; }
+  .appbar, .bottom-nav, .fab, .toasts { display: none !important; }
+  body.has-nav { padding-bottom: 0; }
+  .view { padding: 0; max-width: none; }
+  .guide h2 { break-after: avoid; }
+  .guide-table tr { break-inside: avoid; }
+}

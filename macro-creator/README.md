@@ -25,6 +25,17 @@ In der APK laufen Benachrichtigungen, Sprachausgabe, Taschenlampe, Vibration, Ak
 und die Zurück-Taste über native Android-Funktionen (`android/`, Brücke in `js/native.js`). Die Zurück-Taste auf der
 Startseite schickt die App in den Hintergrund, damit Makros weiterlaufen; Android kann sie dort nach einiger Zeit beenden.
 
+Im Release liegt außerdem die **Einrichtungsanleitung (PDF)**. Sie erklärt Installation, Hintergrundbetrieb und
+wo man jede Berechtigung einstellt; dieselbe Anleitung steht in der App unter Einstellungen → „Einrichtungsanleitung“.
+
+**Hintergrundbetrieb:** Einstellungen → „Hintergrunddienst“ hält die Makros mit einer Daueranzeige am Laufen, auch
+wenn die App geschlossen wird; optional „Beim Gerätestart starten“ und „CPU wach halten“.
+
+**Berechtigungen** (Seite „Berechtigungen“ in der App, jeweils mit Knopf „Einrichten“): Benachrichtigungen, Standort,
+Standort im Hintergrund, Akku-Optimierung, Bedienungshilfe (App geöffnet/geschlossen, Systemaktionen),
+Benachrichtigungszugriff (Benachrichtigung empfangen), „Bitte nicht stören“-Zugriff, Systemeinstellungen ändern
+(Helligkeit) und Über anderen Apps einblenden (Apps aus dem Hintergrund öffnen).
+
 Selbst bauen (Android Studio oder Android SDK nötig): `cd macro-creator/android && ./gradlew assembleRelease`.
 Die APK ist mit dem Schlüssel `android/app/makrostudio.keystore` signiert, der bewusst im Repo liegt, damit Updates
 über die bestehende Installation gehen. Für eine Veröffentlichung im Play Store einen eigenen, geheimen Schlüssel verwenden.

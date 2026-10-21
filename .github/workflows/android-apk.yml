@@ -44,7 +44,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: macro-creator/android
-          script: ./gradlew --no-daemon connectedDebugAndroidTest && adb logcat -d -s IntervalTriggerTest:I
+          script: ./gradlew --no-daemon connectedDebugAndroidTest && adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I
 
       - name: Testbericht hochladen
         if: always()
@@ -77,18 +77,29 @@ jobs:
       - name: APK bereitstellen
         run: cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MakroStudio.apk"
 
+      - name: Einrichtungsanleitung als PDF erzeugen
+        working-directory: macro-creator
+        run: |
+          python3 -m http.server 8099 > /dev/null 2>&1 &
+          sleep 2
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-pdf-header-footer --virtual-time-budget=5000 \
+            --print-to-pdf="$RUNNER_TEMP/Makro-Studio-Einrichtungsanleitung.pdf" "http://localhost:8099/#/guide"
+          test -s "$RUNNER_TEMP/Makro-Studio-Einrichtungsanleitung.pdf"
+
       - uses: actions/upload-artifact@v4
         with:
           name: MakroStudio-apk
-          path: ${{ runner.temp }}/MakroStudio.apk
+          path: |
+            ${{ runner.temp }}/MakroStudio.apk
+            ${{ runner.temp }}/Makro-Studio-Einrichtungsanleitung.pdf
 
       - name: Als Release „apk-latest“ veröffentlichen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete apk-latest --yes --cleanup-tag || true
-          gh release create apk-latest "$RUNNER_TEMP/MakroStudio.apk" \
+          gh release create apk-latest "$RUNNER_TEMP/MakroStudio.apk" "$RUNNER_TEMP/Makro-Studio-Einrichtungsanleitung.pdf" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Makro Studio – neueste APK" \
-            --notes "Automatisch gebaut aus ${GITHUB_REF_NAME} (${GITHUB_SHA::7}), Build ${{ github.run_number }}. Auf dem Handy MakroStudio.apk herunterladen und installieren."
+            --notes "Automatisch gebaut aus ${GITHUB_REF_NAME} (${GITHUB_SHA::7}), Build ${{ github.run_number }}. Auf dem Handy MakroStudio.apk herunterladen und installieren. Die Einrichtungsanleitung (PDF) erklärt Installation, Hintergrundbetrieb und alle Berechtigungen."

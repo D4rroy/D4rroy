@@ -9,7 +9,7 @@
   const S = () => MS.store.state;
   const go = (hash) => MS.app.navigate(hash);
   /** replaceChildren ohne null/false-Einträge */
-  const fill = (el, ...kids) => el.replaceChildren(...kids.filter(Boolean));
+  const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(Boolean));
   const views = (MS.views = {});
 
   /** Zeichnet neu, sobald eines der Ereignisse eintritt; gibt Abmeldefunktion zurück. */
@@ -127,6 +127,7 @@
                 h('span', { class: 'pulse' }), `${running} Makro${running > 1 ? 's laufen' : ' läuft'} gerade`,
                 h('button', { class: 'btn btn-small', type: 'button', onclick: () => { MS.engine.cancel(null); ui.toast('Alle Makros abgebrochen'); } }, 'Alle abbrechen')) : null,
               MS.store.persistent ? null : h('div', { class: 'status-warn' }, icon('warning'), 'Speicher nicht verfügbar – Änderungen gehen beim Schließen verloren.')),
+            permissionBanner(),
             h('div', { class: 'tile-grid' }, TILES.map((t) => h('button', {
               class: 'tile', type: 'button', style: { '--tile': t.color },
               onclick: () => (t.onClick ? t.onClick() : go(t.href)),
@@ -145,11 +146,25 @@
               st.log.length
                 ? h('div', { class: 'card list' }, st.log.slice(0, 5).map(logRow))
                 : h('p', { class: 'muted pad' }, 'Noch keine Ereignisse. Lege ein Makro an oder starte mit einer Vorlage.')));
-        }, ['store', 'running', 'log', 'engine']);
+        }, ['store', 'running', 'log', 'engine', 'app-resume']);
       },
       destroy() { off && off(); },
     };
   };
+
+  /** Startseite (Android): zeigt, wie viele Berechtigungen noch fehlen. */
+  function permissionBanner() {
+    if (!MS.native.available) return null;
+    const st = MS.native.permissions();
+    const list = MS.PERMISSIONS.filter((p) => !p.minSdk || st.sdk >= p.minSdk);
+    const missing = list.filter((p) => !st[p.key]).length;
+    return h('button', { class: 'perm-banner' + (missing ? '' : ' ok'), type: 'button', onclick: () => go('#/permissions') },
+      icon(missing ? 'shield' : 'verified_user'),
+      h('span', { class: 'perm-banner-text' },
+        h('strong', null, missing ? `${missing} Berechtigung${missing > 1 ? 'en' : ''} noch nicht eingerichtet` : 'Alle Berechtigungen eingerichtet'),
+        h('span', null, st.service ? 'Hintergrunddienst läuft' : 'Hintergrunddienst ist aus – Makros laufen nur bei geöffneter App')),
+      icon('chevron_right'));
+  }
 
   function showHelp() {
     ui.modal({
@@ -160,6 +175,7 @@
         h('p', null, h('strong', { style: { color: 'var(--action)' } }, 'Aktionen'), ' werden der Reihe nach ausgeführt (Benachrichtigung, Sprachausgabe, HTTP-Anfrage, Variablen, Wenn/Sonst, Schleifen …).'),
         h('p', null, h('strong', { style: { color: 'var(--constraint)' } }, 'Bedingungen'), ' müssen erfüllt sein, damit das Makro läuft (z. B. nur werktags, nur zwischen 9 und 18 Uhr).'),
         h('p', null, h('strong', null, 'Magic Text'), ' wie {time}, {battery} oder {v=name} fügt Werte in Texte ein – über den { }-Knopf neben Textfeldern.'),
+        h('p', null, h('a', { href: '#/guide', class: 'link' }, 'Einrichtungsanleitung öffnen'), ' – erklärt Installation, Hintergrundbetrieb und alle Berechtigungen.'),
         h('p', null, h('strong', null, 'Hinweis: '), MS.native.available
           ? 'Auslöser funktionieren, solange Makro Studio läuft. Die Zurück-Taste schickt die App in den Hintergrund, statt sie zu beenden. WLAN oder Bluetooth schalten dürfen normale Apps seit Android 10 nicht mehr.'
           : 'Makro Studio läuft im Browser. Auslöser funktionieren, solange die App geöffnet ist (am besten als App installieren und Bildschirm wach halten). Systemfunktionen wie WLAN oder Bluetooth schalten kann ein Browser nicht.')),
@@ -365,7 +381,8 @@
       },
         h('span', { class: 'item-icon', style: { background: isFlow ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help')),
         h('div', { class: 'item-text' },
-          h('div', { class: 'item-title' }, item.invert ? h('span', { class: 'badge' }, 'NICHT') : null, d ? d.name : 'Unbekannt: ' + item.type, d && !MS.catalog.supported(d) ? h('span', { class: 'badge warn', title: 'In diesem Browser nicht verfügbar' }, '!') : null),
+          h('div', { class: 'item-title' }, item.invert ? h('span', { class: 'badge' }, 'NICHT') : null, d ? d.name : 'Unbekannt: ' + item.type, d && !MS.catalog.supported(d) ? h('span', { class: 'badge warn', title: 'Hier nicht verfügbar' }, '!') : null,
+            ui.missingPermissions(d).length ? h('span', { class: 'badge perm', title: 'Berechtigung fehlt' }, 'Berechtigung fehlt') : null),
           (() => { const s = MS.catalog.describe(kindName, item); return s ? h('div', { class: 'item-sub' }, s) : null; })()),
         icon('more_vert', 'item-more'));
     }
@@ -790,7 +807,7 @@
             const t = MS.geo.sunTimes(new Date(), home.lat, home.lon);
             sunText = isNaN(t.sunrise) ? 'Heute kein Sonnenauf-/untergang (Polartag/-nacht).' : `Heute: Sonnenaufgang ${fmtTime(t.sunrise)}, Sonnenuntergang ${fmtTime(t.sunset)}`;
           }
-          root.replaceChildren(
+          fill(root, 
             h('h2', { class: 'set-group' }, 'Allgemein'),
             h('div', { class: 'card' },
               row('Makro Studio aktiv', 'Schaltet alle Auslöser ein oder aus.', switchEl(st.enabled, (v) => setS('enabled', v))),
@@ -802,8 +819,12 @@
               row('Aktionen protokollieren', 'Jede ausgeführte Aktion im Systemprotokoll vermerken.', switchEl(st.logActions, (v) => setS('logActions', v))),
               row('Protokollgröße', null, sel(String(st.logLimit), [['100', '100 Einträge'], ['500', '500 Einträge'], ['2000', '2000 Einträge']], (v) => setS('logLimit', Number(v))))),
 
+            MS.native.available ? backgroundCard(row) : null,
             h('h2', { class: 'set-group' }, 'Berechtigungen'),
-            h('div', { class: 'card' },
+            MS.native.available ? h('div', { class: 'card' },
+              row('Alle Berechtigungen', 'Status und Einrichtung von Benachrichtigungen, Standort, Bedienungshilfe usw.', h('button', { class: 'btn btn-tonal', type: 'button', onclick: () => go('#/permissions') }, 'Öffnen')),
+              row('Einrichtungsanleitung', 'Schritt für Schritt: wo man welche Berechtigung einstellt.', h('button', { class: 'btn btn-tonal', type: 'button', onclick: () => go('#/guide') }, 'Anzeigen'))) : null,
+            MS.native.available ? null : h('div', { class: 'card' },
               row('Benachrichtigungen', 'Status: ' + notifState, h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
                 let ok;
                 if (MS.native.available) ok = await MS.native.requestPermission('notifications');
@@ -817,7 +838,8 @@
               } }, 'Freigeben')),
               row('Standort', MS.device.position ? `Letzte Position: ${MS.device.position.lat.toFixed(4)}, ${MS.device.position.lon.toFixed(4)}` : 'Für Geofences und Sonnenzeiten.', h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
                 try { await MS.device.getPosition(); ui.toast('Standort ermittelt'); MS.bus.emit('store', 'ui'); } catch (e) { ui.toast(e.message); }
-              } }, 'Abrufen'))),
+              } }, 'Abrufen')),
+              row('Einrichtungsanleitung', 'Für die Android-App: wo man welche Berechtigung einstellt.', h('button', { class: 'btn btn-tonal', type: 'button', onclick: () => go('#/guide') }, 'Anzeigen'))),
 
             h('h2', { class: 'set-group' }, 'Standort für Sonnenzeiten'),
             h('div', { class: 'card pad' },
@@ -854,11 +876,128 @@
                 ? 'Auslöser funktionieren, solange die App läuft. Mit der Zurück-Taste läuft sie im Hintergrund weiter; Android kann sie dort aber nach einiger Zeit beenden.'
                 : 'Auslöser funktionieren, solange die App geöffnet ist. Für den Dauerbetrieb die App installieren und „Bildschirm wach halten“ aktivieren.'),
               MS.native.available ? null : MS.app.installPrompt ? h('button', { class: 'btn btn-primary', type: 'button', onclick: () => MS.app.install() }, icon('install_mobile'), 'Als App installieren') : null));
-        }, ['store', 'engine']);
+        }, ['store', 'engine', 'app-resume']);
       },
       destroy() { off && off(); },
     };
   };
+
+  // ================================================== HINTERGRUND & RECHTE
+  /** Karte „Hintergrundbetrieb“ (Android): Dienst, Autostart, CPU wach halten. */
+  function backgroundCard(row) {
+    const st = MS.native.permissions();
+    const toggle = (key) => (v) => {
+      MS.native.setBackground(key, v);
+      setTimeout(() => MS.bus.emit('app-resume'), 600);
+    };
+    return [
+      h('h2', { class: 'set-group' }, 'Hintergrundbetrieb'),
+      h('div', { class: 'card' },
+        row('Hintergrunddienst', st.service ? 'Läuft – Makros arbeiten auch bei geschlossener App.' : 'Aus – Makros laufen nur, solange die App geöffnet ist.', switchEl(st.service, toggle('service'), 'Hintergrunddienst')),
+        row('Beim Gerätestart starten', 'Startet den Dienst nach einem Neustart automatisch (Auslöser „Gerät gestartet“).', switchEl(st.autostart, toggle('autostart'), 'Beim Gerätestart starten')),
+        row('CPU wach halten', 'Makros laufen auch bei ausgeschaltetem Bildschirm pünktlich. Braucht etwas mehr Akku.', switchEl(st.cpu_wake, toggle('cpu_wake'), 'CPU wach halten'))),
+    ];
+  }
+
+  views.permissions = () => {
+    let off;
+    return {
+      title: 'Berechtigungen', back: '#/settings',
+      actions: [{ icon: 'menu_book', label: 'Einrichtungsanleitung', onClick: () => go('#/guide') }],
+      render(root) {
+        if (!MS.native.available) {
+          root.replaceChildren(emptyState('android', 'Nur in der Android-App', 'Berechtigungen wie Bedienungshilfe oder Benachrichtigungszugriff gibt es nur in der Android-App (APK).',
+            h('button', { class: 'btn btn-primary', type: 'button', onclick: () => go('#/guide') }, icon('menu_book'), 'Einrichtungsanleitung')));
+          return;
+        }
+        const openState = {};
+        off = live(() => {
+          const st = MS.native.permissions();
+          const list = MS.PERMISSIONS.filter((p) => !p.minSdk || st.sdk >= p.minSdk);
+          const done = list.filter((p) => st[p.key]).length;
+          const row = (title, sub, control) => h('div', { class: 'set-row' }, h('div', { class: 'set-text' }, h('div', { class: 'set-title' }, title), sub ? h('div', { class: 'set-sub' }, sub) : null), control);
+          const vendor = MS.SETUP_GUIDE.vendors.find(([name]) => name.toLowerCase().includes(String(st.manufacturer || '').toLowerCase()));
+          fill(root, 
+            h('div', { class: 'perm-summary' },
+              h('div', { class: 'perm-progress' }, h('span', { style: { width: Math.round((done / list.length) * 100) + '%' } })),
+              h('span', null, `${done} von ${list.length} Berechtigungen eingerichtet`)),
+            ...backgroundCard(row),
+            h('h2', { class: 'set-group' }, 'Berechtigungen'),
+            h('div', { class: 'perm-list' }, list.map((perm) => {
+              const ok = !!st[perm.key];
+              const det = h('details', { class: 'perm-steps', open: !!openState[perm.key] },
+                h('summary', null, 'So geht’s'),
+                h('ol', null, perm.steps.map((s) => h('li', null, s))),
+                perm.restricted && st.sdk >= 33 ? h('div', { class: 'perm-restricted' },
+                  h('p', null, h('strong', null, 'Schalter ausgegraut? '), MS.SETUP_GUIDE.restricted[2]),
+                  h('button', { class: 'btn btn-small-tonal', type: 'button', onclick: () => MS.native.requestPermission('app_info') }, icon('info'), 'App-Info öffnen')) : null);
+              det.addEventListener('toggle', () => { openState[perm.key] = det.open; });
+              return h('div', { class: 'perm-card' + (ok ? ' ok' : '') },
+                h('div', { class: 'perm-head' },
+                  h('span', { class: 'perm-icon' }, icon(perm.icon)),
+                  h('div', { class: 'perm-title' }, h('strong', null, perm.title), h('span', { class: 'perm-status' }, icon(ok ? 'check_circle' : 'error'), ok ? 'Erteilt' : 'Fehlt')),
+                  h('button', { class: 'btn ' + (ok ? 'btn-text' : 'btn-primary'), type: 'button', onclick: async () => {
+                    await MS.native.requestPermission(perm.key);
+                    setTimeout(() => MS.bus.emit('app-resume'), 300);
+                  } }, ok ? 'Ändern' : 'Einrichten')),
+                h('p', { class: 'perm-why' }, perm.why),
+                h('p', { class: 'perm-uses' }, 'Benötigt für: ', perm.uses.join(', ')),
+                det);
+            })),
+            vendor ? h('div', { class: 'card pad vendor-tip' }, h('strong', null, `Tipp für ${vendor[0]}`), h('p', null, vendor[1])) : null,
+            h('div', { class: 'card pad' },
+              h('p', null, 'Bei manchen Herstellern beendet das System Apps trotz Berechtigungen. Die Anleitung enthält Tipps für Samsung, Xiaomi, Huawei und OnePlus.'),
+              h('button', { class: 'btn btn-tonal', type: 'button', onclick: () => go('#/guide') }, icon('menu_book'), 'Einrichtungsanleitung')));
+        }, ['app-resume']);
+      },
+      destroy() { off && off(); },
+    };
+  };
+
+  /** Einrichtungsanleitung – auch als PDF (tools/build-guide.mjs). */
+  views.guide = () => ({
+    title: 'Einrichtungsanleitung', back: MS.native.available ? '#/permissions' : '#/settings',
+    render(root) {
+      const G = MS.SETUP_GUIDE;
+      const C = MS.catalog;
+      const kinds = [['trigger', 'Auslöser'], ['action', 'Aktion'], ['constraint', 'Bedingung']];
+      const rows = [];
+      for (const [kind, label] of kinds) {
+        for (const d of Object.values(C.map(kind))) {
+          if (!d.needs) continue;
+          const perms = d.needs.map((n) => n.split('|').map((k) => (MS.PERMISSIONS.find((p) => p.key === k) || { title: k }).title).join(' oder '));
+          rows.push(h('tr', null, h('td', null, d.name), h('td', null, label), h('td', null, perms.join(' + '))));
+        }
+      }
+      root.classList.add('guide');
+      root.replaceChildren(
+        h('header', { class: 'guide-head' },
+          h('h1', null, 'Makro Studio – Einrichtungsanleitung'),
+          h('p', null, 'Installation, Hintergrundbetrieb und alle Berechtigungen der Android-App. Stand: ' + MS.util.fmtDate(new Date()))),
+        h('section', null, h('h2', null, '1. App installieren'), h('ol', null, G.install.map((s) => h('li', null, s)))),
+        h('section', null, h('h2', null, '2. Hintergrundbetrieb einschalten'),
+          h('p', null, 'Damit Makros auch bei geschlossener App laufen. Alles unter Makro Studio → Einstellungen → „Hintergrundbetrieb“.'),
+          h('ol', null, G.background.map((s) => h('li', null, s)))),
+        h('section', null, h('h2', null, '3. Berechtigungen'),
+          h('p', null, 'Alle Berechtigungen findest du in Makro Studio unter Einstellungen → „Alle Berechtigungen“. Der Knopf „Einrichten“ öffnet jeweils die richtige Android-Seite. Erteile nur, was du für deine Makros brauchst.'),
+          MS.PERMISSIONS.map((perm, i) => h('article', { class: 'guide-perm' },
+            h('h3', null, `3.${i + 1} ${perm.title}`, perm.minSdk ? h('span', { class: 'guide-note' }, ` (ab Android ${perm.minSdk === 29 ? '10' : perm.minSdk})`) : null),
+            h('p', null, perm.why),
+            h('p', { class: 'guide-uses' }, h('strong', null, 'Benötigt für: '), perm.uses.join(', ')),
+            h('ol', null, perm.steps.map((s) => h('li', null, s)))))),
+        h('section', null, h('h2', null, '4. Eingeschränkte Einstellungen freigeben (Android 13 und neuer)'),
+          h('p', null, 'Betrifft die Bedienungshilfe und den Benachrichtigungszugriff.'),
+          h('ol', null, G.restricted.map((s) => h('li', null, s)))),
+        h('section', null, h('h2', null, '5. Tipps für einzelne Hersteller'),
+          h('table', { class: 'guide-table' }, h('thead', null, h('tr', null, h('th', null, 'Hersteller'), h('th', null, 'Einstellung'))),
+            h('tbody', null, G.vendors.map(([v, t]) => h('tr', null, h('td', null, v), h('td', null, t)))))),
+        h('section', null, h('h2', null, '6. Welche Funktion braucht welche Berechtigung?'),
+          h('div', { class: 'table-wrap' }, h('table', { class: 'guide-table' },
+            h('thead', null, h('tr', null, h('th', null, 'Funktion'), h('th', null, 'Art'), h('th', null, 'Berechtigung'))),
+            h('tbody', null, rows)))),
+        h('section', null, h('h2', null, '7. Was technisch nicht geht'), h('ul', null, G.limits.map((s) => h('li', null, s)))));
+    },
+  });
 
   views.notFound = (msg = 'Seite nicht gefunden') => ({
     title: 'Nicht gefunden', back: '#/',

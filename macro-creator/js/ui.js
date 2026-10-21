@@ -430,6 +430,22 @@
           }
           return h('div', { class: 'subform' }, h('div', { class: 'subform-title' }, f.label), rows);
         }
+        case 'app': {
+          if (!MS.native.available) return h('p', { class: 'field-info' }, 'App-Auswahl ist nur in der Android-App verfügbar.');
+          let apps = [];
+          try { apps = MS.native.apps(); } catch (e) { apps = []; }
+          const sel = h('select', { class: 'input' },
+            h('option', { value: '' }, '— App wählen —'),
+            p[f.key] && !apps.some((a) => a.pkg === p[f.key]) ? h('option', { value: p[f.key] }, (p[f.key + 'Label'] || p[f.key]) + ' (nicht installiert)') : null,
+            apps.map((a) => h('option', { value: a.pkg }, a.label)));
+          sel.value = p[f.key] || '';
+          sel.addEventListener('change', () => {
+            const a = apps.find((x) => x.pkg === sel.value);
+            set(sel.value);
+            p[f.key + 'Label'] = a ? a.label : '';
+          });
+          return field(f.label, sel);
+        }
         case 'location': {
           const pl = (p[f.key] = Object.assign({ name: '', lat: '', lon: '', radius: 150 }, p[f.key] || {}));
           const mk = (k, label, type = 'text') => {
@@ -511,6 +527,34 @@
     };
   };
 
+  /** Berechtigungen, die ein Katalogeintrag braucht und die noch fehlen (nur Android-App). */
+  ui.missingPermissions = function (d) {
+    if (!d || !d.needs || !MS.native.available) return [];
+    let status;
+    try { status = MS.native.permissions(); } catch (e) { return []; }
+    const missing = [];
+    for (const need of d.needs) {
+      const keys = need.split('|');
+      if (keys.some((k) => status[k])) continue;
+      const perm = MS.PERMISSIONS.find((x) => x.key === keys[0]);
+      if (perm) missing.push(perm);
+    }
+    return missing;
+  };
+
+  /** Hinweisbox mit „Einrichten“-Knöpfen für fehlende Berechtigungen. */
+  ui.permissionHint = function (d) {
+    const missing = ui.missingPermissions(d);
+    if (!missing.length) return null;
+    return h('div', { class: 'warn-box perm-hint' }, icon('lock'),
+      h('div', null,
+        h('div', null, 'Diese Funktion braucht noch eine Berechtigung:'),
+        h('div', { class: 'perm-hint-buttons' }, missing.map((perm) => h('button', {
+          class: 'btn btn-small-tonal', type: 'button',
+          onclick: async () => { await MS.native.requestPermission(perm.key); },
+        }, icon(perm.icon), perm.title)))));
+  };
+
   /** Konfigurationsdialog für Auslöser/Aktion/Bedingung → neue Parameter oder null. */
   ui.configure = async function (kind, item, ctx = {}) {
     const d = MS.catalog.get(kind, item.type);
@@ -524,7 +568,10 @@
       title: d.name,
       content: h('div', null,
         d.help ? h('p', { class: 'dialog-help' }, d.help) : null,
-        supported ? null : h('p', { class: 'warn-box' }, icon('warning'), 'Dieser Browser unterstützt diese Funktion nicht. Sie funktioniert ggf. auf einem anderen Gerät.'),
+        supported ? null : h('p', { class: 'warn-box' }, icon('warning'), MS.native.available
+          ? 'Diese Funktion wird auf diesem Gerät nicht unterstützt.'
+          : 'Diese Funktion gibt es nur in der Android-App oder sie wird von diesem Browser nicht unterstützt.'),
+        ui.permissionHint(d),
         box, err),
       buttons: [
         { label: 'Abbrechen', value: null },
