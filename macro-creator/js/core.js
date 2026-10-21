@@ -377,20 +377,23 @@
       }
       window.addEventListener('devicemotion', (e) => this.onMotion(e));
 
-      if (navigator.getBattery) {
+      if (MS.native.available) {
+        try { this.battery = MS.native.battery(); } catch (e) { /* nicht verfügbar */ }
+      } else if (navigator.getBattery) {
         try {
           const b = await navigator.getBattery();
           const read = () => ({ level: Math.round(b.level * 100), charging: b.charging });
           this.battery = read();
-          const upd = () => {
-            const prev = this.battery;
-            this.battery = read();
-            MS.bus.emit('battery', { ...this.battery, prevLevel: prev && prev.level, prevCharging: prev && prev.charging });
-          };
-          b.addEventListener('levelchange', upd);
-          b.addEventListener('chargingchange', upd);
+          b.addEventListener('levelchange', () => this.setBattery(read()));
+          b.addEventListener('chargingchange', () => this.setBattery(read()));
         } catch (e) { /* nicht verfügbar */ }
       }
+    },
+    setBattery(next) {
+      const prev = this.battery;
+      if (prev && prev.level === next.level && prev.charging === next.charging) return;
+      this.battery = next;
+      MS.bus.emit('battery', { ...next, prevLevel: prev && prev.level, prevCharging: prev && prev.charging });
     },
     setOnline(on) {
       if (this.online === on) return;

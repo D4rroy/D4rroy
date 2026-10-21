@@ -1,8 +1,8 @@
 /* Makro Studio – Service Worker: Offline-Cache (Stale-While-Revalidate) und Benachrichtigungsklicks. */
-const CACHE = 'makrostudio-v1';
+const CACHE = 'makrostudio-v2';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
-  'js/core.js', 'js/catalog.js', 'js/engine.js', 'js/ui.js', 'js/templates.js', 'js/views.js', 'js/app.js',
+  'js/core.js', 'js/native.js', 'js/catalog.js', 'js/engine.js', 'js/ui.js', 'js/templates.js', 'js/views.js', 'js/app.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

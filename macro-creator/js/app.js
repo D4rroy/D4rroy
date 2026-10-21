@@ -85,6 +85,13 @@
     navigate,
     applyTheme,
     setLastHash(h) { lastHash = h; },
+    /** Android-Zurück-Taste: true, wenn die App sie verarbeitet hat. */
+    handleBack() {
+      if (MS.ui.closeTop()) return true;
+      if (current && current.back) { navigate(current.back); return true; }
+      if (location.hash && location.hash !== '#/') { navigate('#/'); return true; }
+      return false;
+    },
     installPrompt: null,
     async install() {
       if (!this.installPrompt) return;
@@ -119,5 +126,5 @@
   render();
 
   const secure = location.protocol === 'https:' || location.hostname === 'localhost';
-  if ('serviceWorker' in navigator && secure) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && secure && !MS.native.available) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

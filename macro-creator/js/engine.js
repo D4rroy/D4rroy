@@ -288,7 +288,10 @@
       for (const ctx of this.running.values()) {
         if (macroId === null || ctx.macroId === macroId) { ctx.token.cancelled = true; n++; }
       }
-      if ('speechSynthesis' in window && macroId === null) speechSynthesis.cancel();
+      if (macroId === null) {
+        if (MS.native.available) MS.native.stopSpeaking();
+        else if ('speechSynthesis' in window) speechSynthesis.cancel();
+      }
       return n;
     },
     isRunning(macroId, exceptRunId) {

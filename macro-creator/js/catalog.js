@@ -63,7 +63,7 @@
     { id: 'location', name: 'Standort', icon: 'location_on' },
     { id: 'app', name: 'Makro Studio', icon: 'bolt' },
   ];
-  const hasBattery = () => 'getBattery' in navigator;
+  const hasBattery = () => MS.native.available || 'getBattery' in navigator;
   const hasMotion = () => 'DeviceMotionEvent' in window;
   const hasGeo = () => 'geolocation' in navigator;
 
@@ -341,6 +341,7 @@
 
   // --- Benachrichtigungen
   async function notify(title, body) {
+    if (MS.native.available && MS.native.notify(title, body)) return;
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         const reg = navigator.serviceWorker && (await navigator.serviceWorker.getRegistration());
@@ -416,7 +417,7 @@
 
   // --- Ton & Sprache
   A('speak', {
-    name: 'Text sprechen', icon: 'record_voice_over', cat: 'audio', supported: () => 'speechSynthesis' in window,
+    name: 'Text sprechen', icon: 'record_voice_over', cat: 'audio', supported: () => MS.native.available || 'speechSynthesis' in window,
     help: 'Liest einen Text mit der Sprachausgabe des Geräts vor.',
     params: [
       { key: 'text', label: 'Text', type: 'textarea', magic: true, default: 'Es ist {time} Uhr.', required: true },
@@ -427,6 +428,7 @@
     ],
     describe: (p) => p.text,
     run(ctx, p) {
+      if (MS.native.available) return MS.native.speak(M(p.text, ctx), p.lang, Number(p.rate) || 1, Number(p.pitch) || 1, p.wait);
       return new Promise((resolve) => {
         if (!('speechSynthesis' in window)) throw new Error('Sprachausgabe nicht verfügbar');
         const u = new SpeechSynthesisUtterance(M(p.text, ctx));
@@ -500,7 +502,7 @@
   });
 
   A('vibrate', {
-    name: 'Vibrieren', icon: 'vibration', cat: 'audio', supported: () => 'vibrate' in navigator,
+    name: 'Vibrieren', icon: 'vibration', cat: 'audio', supported: () => MS.native.available || 'vibrate' in navigator,
     help: 'Lässt das Gerät mit einem Muster vibrieren (nur auf Geräten mit Vibrationsmotor).',
     params: [
       { key: 'pattern', label: 'Muster', type: 'select', options: [['short', 'Kurz'], ['long', 'Lang'], ['double', 'Doppelt'], ['heartbeat', 'Herzschlag'], ['sos', 'SOS'], ['custom', 'Eigenes Muster']], default: 'short' },
@@ -510,13 +512,16 @@
     run(ctx, p) {
       const P = { short: [200], long: [800], double: [150, 100, 150], heartbeat: [100, 120, 100, 600, 100, 120, 100], sos: [100, 80, 100, 80, 100, 250, 300, 80, 300, 80, 300, 250, 100, 80, 100, 80, 100] };
       const pattern = p.pattern === 'custom' ? String(p.custom).split(/[,;\s]+/).map(Number).filter((n) => n >= 0) : P[p.pattern];
+      if (MS.native.available) { if (!MS.native.vibrate(pattern)) throw new Error('Vibration wird auf diesem Gerät nicht unterstützt'); return; }
       if (!navigator.vibrate || !navigator.vibrate(pattern)) throw new Error('Vibration wird auf diesem Gerät nicht unterstützt');
     },
   });
 
   // --- Geräteaktionen
   let torchTrack = null;
+  const torchIsOn = () => (MS.native.available ? MS.native.torchOn() : !!torchTrack);
   async function setTorch(on) {
+    if (MS.native.available) return MS.native.torch(on);
     if (on) {
       if (torchTrack) return;
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Kamera nicht verfügbar');
@@ -537,12 +542,13 @@
     help: 'Schaltet das Kameralicht ein oder aus (Android/Chrome, benötigt Kamerafreigabe).',
     params: [{ key: 'state', label: 'Aktion', type: 'select', options: STATE3, default: 'toggle' }],
     describe: (p) => opt(STATE3, p.state),
-    run: (ctx, p) => setTorch(p.state === 'toggle' ? !torchTrack : p.state === 'on'),
+    run: (ctx, p) => setTorch(p.state === 'toggle' ? !torchIsOn() : p.state === 'on'),
   });
 
   let wakeLock = null, wantWake = false;
   async function setWake(on) {
     wantWake = on;
+    if (MS.native.available) { MS.native.keepScreenOn(on); return; }
     if (on) {
       if (wakeLock) return;
       if (!navigator.wakeLock) throw new Error('Wach halten wird nicht unterstützt');
@@ -557,7 +563,7 @@
     if (document.visibilityState === 'visible' && wantWake && !wakeLock) setWake(true).catch(() => {});
   });
   A('wake_lock', {
-    name: 'Bildschirm wach halten', icon: 'light_mode', cat: 'device', supported: () => 'wakeLock' in navigator,
+    name: 'Bildschirm wach halten', icon: 'light_mode', cat: 'device', supported: () => MS.native.available || 'wakeLock' in navigator,
     help: 'Verhindert, dass sich der Bildschirm automatisch ausschaltet.',
     params: [{ key: 'state', label: 'Aktion', type: 'select', options: STATE3, default: 'on' }],
     describe: (p) => opt(STATE3, p.state),
@@ -570,6 +576,10 @@
     params: [{ key: 'state', label: 'Aktion', type: 'select', options: STATE3, default: 'toggle' }],
     describe: (p) => opt(STATE3, p.state),
     async run(ctx, p) {
+      if (MS.native.available) {
+        MS.native.fullscreen(p.state === 'toggle' ? !MS.native.isFullscreen() : p.state === 'on');
+        return;
+      }
       const on = p.state === 'toggle' ? !document.fullscreenElement : p.state === 'on';
       if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
       if (!on && document.fullscreenElement) await document.exitFullscreen();
@@ -582,6 +592,7 @@
     params: [{ key: 'text', label: 'Text', type: 'textarea', magic: true, default: '', required: true }],
     describe: (p) => p.text,
     async run(ctx, p) {
+      if (MS.native.available) { MS.native.copy(M(p.text, ctx)); return; }
       if (!navigator.clipboard) throw new Error('Zwischenablage nicht verfügbar');
       await navigator.clipboard.writeText(M(p.text, ctx));
     },
@@ -599,6 +610,7 @@
     async run(ctx, p) {
       const data = { title: M(p.title, ctx), text: M(p.text, ctx) };
       const url = M(p.url, ctx);
+      if (MS.native.available) { MS.native.share(data.title, [data.text, url].filter(Boolean).join('\n')); return; }
       if (url) data.url = url;
       if (!navigator.share) {
         await navigator.clipboard.writeText([data.text, url].filter(Boolean).join(' '));
@@ -611,6 +623,7 @@
 
   // --- Apps & Kommunikation
   function openLink(url, newTab) {
+    if (MS.native.available) return MS.native.openUrl(url);
     if (newTab) {
       const w = window.open(url, '_blank', 'noopener');
       if (!w) location.href = url;

@@ -101,6 +101,14 @@
     });
   };
 
+  /** Schließt den obersten Dialog (für die Android-Zurück-Taste). */
+  ui.closeTop = () => {
+    const top = stack[stack.length - 1];
+    if (!top || !top.dismissible) return false;
+    top.close(null);
+    return true;
+  };
+
   ui.alert = (title, text, ok = 'OK') =>
     ui.modal({ title, content: h('p', { class: 'dialog-text' }, text || ''), buttons: [{ label: ok, value: true, primary: true }] });
 

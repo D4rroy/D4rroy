@@ -35,6 +35,7 @@
 
   // ------------------------------------------------------- Import / Export
   function download(filename, data) {
+    if (MS.native.available) { MS.native.saveFile(filename, JSON.stringify(data, null, 2)); return; }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = h('a', { href: URL.createObjectURL(blob), download: filename });
     document.body.append(a);
@@ -159,7 +160,9 @@
         h('p', null, h('strong', { style: { color: 'var(--action)' } }, 'Aktionen'), ' werden der Reihe nach ausgeführt (Benachrichtigung, Sprachausgabe, HTTP-Anfrage, Variablen, Wenn/Sonst, Schleifen …).'),
         h('p', null, h('strong', { style: { color: 'var(--constraint)' } }, 'Bedingungen'), ' müssen erfüllt sein, damit das Makro läuft (z. B. nur werktags, nur zwischen 9 und 18 Uhr).'),
         h('p', null, h('strong', null, 'Magic Text'), ' wie {time}, {battery} oder {v=name} fügt Werte in Texte ein – über den { }-Knopf neben Textfeldern.'),
-        h('p', null, h('strong', null, 'Hinweis: '), 'Makro Studio läuft im Browser. Auslöser funktionieren, solange die App geöffnet ist (am besten als App installieren und Bildschirm wach halten). Systemfunktionen wie WLAN oder Bluetooth schalten kann ein Browser nicht.')),
+        h('p', null, h('strong', null, 'Hinweis: '), MS.native.available
+          ? 'Auslöser funktionieren, solange Makro Studio läuft. Die Zurück-Taste schickt die App in den Hintergrund, statt sie zu beenden. WLAN oder Bluetooth schalten dürfen normale Apps seit Android 10 nicht mehr.'
+          : 'Makro Studio läuft im Browser. Auslöser funktionieren, solange die App geöffnet ist (am besten als App installieren und Bildschirm wach halten). Systemfunktionen wie WLAN oder Bluetooth schalten kann ein Browser nicht.')),
       buttons: [{ label: 'Verstanden', primary: true, value: true }],
     });
   }
@@ -774,7 +777,9 @@
             return s;
           };
           const perm = (name) => (typeof Notification !== 'undefined' && name === 'notifications' ? Notification.permission : '');
-          const notifState = 'Notification' in window ? { granted: 'erlaubt', denied: 'blockiert', default: 'nicht gefragt' }[perm('notifications')] : 'nicht unterstützt';
+          const notifState = MS.native.available
+            ? (MS.native.notificationsAllowed() ? 'erlaubt' : 'nicht erlaubt')
+            : 'Notification' in window ? { granted: 'erlaubt', denied: 'blockiert', default: 'nicht gefragt' }[perm('notifications')] : 'nicht unterstützt';
           const lat = h('input', { class: 'input', type: 'number', step: 'any', inputmode: 'decimal', value: st.lat, placeholder: 'z. B. 47.9990' });
           const lon = h('input', { class: 'input', type: 'number', step: 'any', inputmode: 'decimal', value: st.lon, placeholder: 'z. B. 7.8421' });
           lat.addEventListener('change', () => { st.lat = lat.value; MS.store.save(); });
@@ -800,9 +805,11 @@
             h('h2', { class: 'set-group' }, 'Berechtigungen'),
             h('div', { class: 'card' },
               row('Benachrichtigungen', 'Status: ' + notifState, h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
-                if (!('Notification' in window)) return ui.toast('Nicht unterstützt');
-                const r = await Notification.requestPermission();
-                ui.toast(r === 'granted' ? 'Benachrichtigungen erlaubt' : 'Benachrichtigungen nicht erlaubt');
+                let ok;
+                if (MS.native.available) ok = await MS.native.requestPermission('notifications');
+                else if ('Notification' in window) ok = (await Notification.requestPermission()) === 'granted';
+                else return ui.toast('Nicht unterstützt');
+                ui.toast(ok ? 'Benachrichtigungen erlaubt' : 'Benachrichtigungen nicht erlaubt');
                 MS.bus.emit('store', 'ui');
               } }, 'Erlauben')),
               row('Bewegungssensoren', 'Für „Gerät schütteln“ und „Gerät umdrehen“ (iOS fragt nach).', h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
@@ -842,9 +849,11 @@
 
             h('h2', { class: 'set-group' }, 'Über'),
             h('div', { class: 'card pad about' },
-              h('p', null, h('strong', null, 'Makro Studio'), ' – ein Makro-Ersteller im Stil von MacroDroid, der komplett im Browser läuft. Alle Daten bleiben auf diesem Gerät.'),
-              h('p', { class: 'muted' }, 'Auslöser funktionieren, solange die App geöffnet ist. Für den Dauerbetrieb die App installieren und „Bildschirm wach halten“ aktivieren.'),
-              MS.app.installPrompt ? h('button', { class: 'btn btn-primary', type: 'button', onclick: () => MS.app.install() }, icon('install_mobile'), 'Als App installieren') : null));
+              h('p', null, h('strong', null, 'Makro Studio'), MS.native.available ? ' – ein Makro-Ersteller im Stil von MacroDroid. Alle Daten bleiben auf diesem Gerät.' : ' – ein Makro-Ersteller im Stil von MacroDroid, der komplett im Browser läuft. Alle Daten bleiben auf diesem Gerät.'),
+              h('p', { class: 'muted' }, MS.native.available
+                ? 'Auslöser funktionieren, solange die App läuft. Mit der Zurück-Taste läuft sie im Hintergrund weiter; Android kann sie dort aber nach einiger Zeit beenden.'
+                : 'Auslöser funktionieren, solange die App geöffnet ist. Für den Dauerbetrieb die App installieren und „Bildschirm wach halten“ aktivieren.'),
+              MS.native.available ? null : MS.app.installPrompt ? h('button', { class: 'btn btn-primary', type: 'button', onclick: () => MS.app.install() }, icon('install_mobile'), 'Als App installieren') : null));
         }, ['store', 'engine']);
       },
       destroy() { off && off(); },

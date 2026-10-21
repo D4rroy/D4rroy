@@ -15,6 +15,20 @@ npx http-server -p 8080    # oder: python3 -m http.server 8080
 Dann `http://localhost:8080` öffnen. Auf dem Handy über „Zum Startbildschirm hinzufügen“ bzw. „App installieren“
 als eigenständige App nutzen. (Die `index.html` kann auch direkt per Doppelklick geöffnet werden – dann ohne Offline-Modus.)
 
+## Android-App (APK)
+
+Bei jedem Push baut GitHub Actions automatisch eine APK und veröffentlicht sie im Release
+**„apk-latest“** (Repo → Releases). Auf dem Handy `MakroStudio.apk` herunterladen, öffnen und die Installation aus
+dieser Quelle erlauben. Neue Versionen lassen sich direkt über die alte installieren; die Makros bleiben erhalten.
+
+In der APK laufen Benachrichtigungen, Sprachausgabe, Taschenlampe, Vibration, Akku-Auslöser, Teilen, Datei-Export
+und die Zurück-Taste über native Android-Funktionen (`android/`, Brücke in `js/native.js`). Die Zurück-Taste auf der
+Startseite schickt die App in den Hintergrund, damit Makros weiterlaufen; Android kann sie dort nach einiger Zeit beenden.
+
+Selbst bauen (Android Studio oder Android SDK nötig): `cd macro-creator/android && ./gradlew assembleRelease`.
+Die APK ist mit dem Schlüssel `android/app/makrostudio.keystore` signiert, der bewusst im Repo liegt, damit Updates
+über die bestehende Installation gehen. Für eine Veröffentlichung im Play Store einen eigenen, geheimen Schlüssel verwenden.
+
 ## Auf dem Handy mit HTTPS
 
 Benachrichtigungen, Standort, Taschenlampe, Offline-Modus und „App installieren“ funktionieren im Browser nur über
