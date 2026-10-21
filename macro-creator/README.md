@@ -15,6 +15,31 @@ npx http-server -p 8080    # oder: python3 -m http.server 8080
 Dann `http://localhost:8080` öffnen. Auf dem Handy über „Zum Startbildschirm hinzufügen“ bzw. „App installieren“
 als eigenständige App nutzen. (Die `index.html` kann auch direkt per Doppelklick geöffnet werden – dann ohne Offline-Modus.)
 
+## Auf dem Handy mit HTTPS
+
+Benachrichtigungen, Standort, Taschenlampe, Offline-Modus und „App installieren“ funktionieren im Browser nur über
+HTTPS. Dafür gibt es einen eigenen Server mit lokalem Zertifikat (Node.js nötig, Rechner und Handy im selben WLAN):
+
+```bash
+cd macro-creator
+npm install
+npm run https
+```
+
+1. Am Handy die angezeigte Einrichtungsseite öffnen (`http://<IP-des-Rechners>:8080`) und **„Zertifikat herunterladen“** tippen.
+2. Zertifikat installieren:
+   - **Android:** Einstellungen → Sicherheit → Weitere Sicherheitseinstellungen → Verschlüsselung & Anmeldedaten →
+     Zertifikat installieren → **CA-Zertifikat** → `makro-studio-ca.crt` wählen. Danach Chrome neu starten.
+   - **iPhone:** Link in Safari öffnen → Einstellungen → „Profil geladen“ → Installieren → Allgemein → Info →
+     Zertifikatsvertrauenseinstellungen → „Makro Studio lokale CA“ aktivieren.
+3. `https://<IP-des-Rechners>:8443` öffnen und über das Browser-Menü als App installieren.
+
+Das Zertifikat wird bei jedem Start für die aktuelle WLAN-Adresse neu ausgestellt. Die Zertifizierungsstelle wird
+nur einmal erzeugt und liegt in `macro-creator/.certs/`. Der Schlüssel `ca.key` darf nicht weitergegeben werden.
+Wenn du die Einrichtung nicht mehr brauchst, entferne das Zertifikat wieder vom Handy und lösche den Ordner `.certs/`.
+Fragt die Firewall beim Start nach, den Zugriff im privaten Netzwerk erlauben. Ports lassen sich mit
+`HTTPS_PORT=… SETUP_PORT=… npm run https` ändern.
+
 ## Funktionen
 
 | Bereich | Inhalt |
