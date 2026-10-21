@@ -88,4 +88,5 @@ js/app.js           Router und Start
 sw.js               Offline-Cache und Benachrichtigungsklicks
 ```
 
-Alle Daten werden lokal im Browser (`localStorage`) gespeichert.
+Alle Daten werden lokal im Browser (`localStorage`) gespeichert. Schriften und Symbole liegen in `fonts/`, die App
+braucht also kein Internet (außer für die Aktion „HTTP-Anfrage“).

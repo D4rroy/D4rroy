@@ -1,7 +1,8 @@
 /* Makro Studio – Service Worker: Offline-Cache (Stale-While-Revalidate) und Benachrichtigungsklicks. */
-const CACHE = 'makrostudio-v2';
+const CACHE = 'makrostudio-v3';
 const SHELL = [
-  './', 'index.html', 'manifest.webmanifest', 'css/style.css',
+  './', 'index.html', 'manifest.webmanifest', 'css/fonts.css', 'css/style.css',
+  'fonts/material-symbols-rounded.woff2', 'fonts/roboto-latin.woff2', 'fonts/roboto-latin-ext.woff2',
   'js/core.js', 'js/native.js', 'js/catalog.js', 'js/engine.js', 'js/ui.js', 'js/templates.js', 'js/views.js', 'js/app.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
@@ -20,8 +21,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  const cacheable = e.request.method === 'GET' &&
-    (url.origin === location.origin || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com');
+  const cacheable = e.request.method === 'GET' && url.origin === location.origin;
   if (!cacheable) return;
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {

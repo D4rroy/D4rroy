@@ -110,6 +110,11 @@ public class MainActivity extends Activity {
         registerBatteryReceiver();
     }
 
+    /** Für Tests: die WebView mit der App. */
+    WebView getWebView() {
+        return web;
+    }
+
     private boolean hasLocationPermission() {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
