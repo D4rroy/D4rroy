@@ -238,6 +238,9 @@
       if (t === 'boolean') {
         input = h('select', { class: 'input' }, h('option', { value: 'true' }, 'Wahr (true)'), h('option', { value: 'false' }, 'Falsch (false)'));
         input.value = String(cur);
+      } else if (t === 'dictionary') {
+        input = h('textarea', { class: 'input mono', rows: 8, value: JSON.stringify(cur, null, 2), spellcheck: 'false' });
+        v.value = input.value;
       } else {
         input = h('input', { class: 'input', type: t === 'string' ? 'text' : 'number', step: t === 'integer' ? '1' : 'any', value: String(cur) });
       }
@@ -263,6 +266,9 @@
             const n = name.value.trim();
             if (!MS.vars.validName(n)) { err.textContent = 'Bitte einen gültigen Namen ohne { } = : eingeben.'; return false; }
             if (takenNames(scope).includes(n) && (!variable || variable.name !== n)) { err.textContent = 'Dieser Name ist bereits vergeben.'; return false; }
+            if (typeSel.value === 'dictionary' && typeof v.value === 'string') {
+              try { JSON.parse(v.value); } catch (e) { err.textContent = 'Das Wörterbuch ist kein gültiges JSON: ' + e.message; return false; }
+            }
             return true;
           },
         },
@@ -396,6 +402,28 @@
           sel.value = p[f.key] || '';
           sel.addEventListener('change', () => set(sel.value));
           return field(f.label, sel);
+        }
+        case 'image': {
+          if (!MS.native.available) return h('p', { class: 'field-info' }, 'Vergleichsbilder gibt es nur in der Android-App.');
+          const preview = h('div', { class: 'image-preview' });
+          const showPreview = () => {
+            preview.replaceChildren();
+            if (!p[f.key]) { preview.append(h('span', { class: 'field-hint' }, p[f.key + 'Label'] ? `Bitte das Bild „${p[f.key + 'Label']}“ auswählen.` : 'Noch kein Bild ausgewählt.')); return; }
+            const url = MS.native.imagePreview(p[f.key]);
+            if (!url) { preview.append(h('span', { class: 'field-error' }, 'Bild nicht gefunden – bitte neu auswählen.')); return; }
+            const [src, size] = url.split('#');
+            preview.append(h('img', { src, alt: 'Vergleichsbild' }), h('span', { class: 'field-hint' }, `${p[f.key + 'Label'] || ''} ${size ? '(' + size.replace('x', ' × ') + ' px)' : ''}`));
+          };
+          showPreview();
+          const btn = h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
+            const name = await MS.native.pickImage();
+            if (!name) return;
+            set(name);
+            p[f.key + 'Label'] = 'Ausgewähltes Bild';
+            showPreview();
+          } }, icon('add_photo_alternate'), p[f.key] ? 'Anderes Bild wählen' : 'Bild auswählen');
+          return h('div', { class: 'field' }, h('span', { class: 'field-label' }, f.label), preview, btn,
+            h('span', { class: 'field-hint' }, 'Tipp: Einen Screenshot machen und auf den gesuchten Bereich zuschneiden.'));
         }
         case 'trigger': {
           const list = ctx.triggers || [];

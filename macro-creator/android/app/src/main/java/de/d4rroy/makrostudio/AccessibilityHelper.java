@@ -34,6 +34,7 @@ import java.util.Map;
 public class AccessibilityHelper extends AccessibilityService {
     static volatile AccessibilityHelper instance;
     static volatile String currentPackage = "";
+    static volatile String currentActivity = "";
     private final Map<String, Boolean> isAppCache = new HashMap<>();
 
     static boolean isEnabled(Context c) {
@@ -50,6 +51,11 @@ public class AccessibilityHelper extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getPackageName() == null) return;
         String pkg = event.getPackageName().toString();
+        if (event.getClassName() != null && isApp(pkg)) {
+            String cls = event.getClassName().toString();
+            // Nur echte Activities merken (keine Dialoge oder Layout-Klassen)
+            if (cls.contains(".") && !cls.startsWith("android.widget") && !cls.startsWith("android.view")) currentActivity = cls;
+        }
         if (pkg.equals(currentPackage) || !isApp(pkg)) return;
         String prev = currentPackage;
         currentPackage = pkg;
@@ -220,7 +226,7 @@ public class AccessibilityHelper extends AccessibilityService {
     }
 
     /** Weckt den Bildschirm, wischt den Sperrbildschirm hoch und tippt die PIN ein. */
-    static String pinUnlock(String pin, boolean pressEnter) {
+    static String pinUnlock(String pin, boolean pressEnter, long digitDelay, long swipeDelay) {
         AccessibilityHelper s = instance;
         if (s == null) return NOT_ENABLED;
         PowerManager pm = s.getSystemService(PowerManager.class);
@@ -237,7 +243,7 @@ public class AccessibilityHelper extends AccessibilityService {
         p.moveTo(dm.widthPixels / 2f, dm.heightPixels * 0.85f);
         p.lineTo(dm.widthPixels / 2f, dm.heightPixels * 0.25f);
         s.gesture(p, 250);
-        SystemClock.sleep(900);
+        SystemClock.sleep(Math.max(300, swipeDelay));
         for (char c : pin.toCharArray()) {
             AccessibilityNodeInfo key = s.find("text", String.valueOf(c), "exact");
             if (key == null) return "Ziffer „" + c + "“ auf dem Sperrbildschirm nicht gefunden";
@@ -248,7 +254,7 @@ public class AccessibilityHelper extends AccessibilityService {
                 key.getBoundsInScreen(r);
                 s.tapAt(r.exactCenterX(), r.exactCenterY(), false);
             }
-            SystemClock.sleep(120);
+            SystemClock.sleep(Math.max(50, digitDelay));
         }
         if (pressEnter) {
             AccessibilityNodeInfo ok = s.find("text", "OK", "exact");
@@ -256,6 +262,38 @@ public class AccessibilityHelper extends AccessibilityService {
             if (ok == null) ok = s.find("text", "Eingabe", "contains");
             if (ok != null) ok.performAction(AccessibilityNodeInfo.ACTION_CLICK);
         }
+        return "";
+    }
+
+    /** Schaltet den Bildschirm ein (ohne zu entsperren). */
+    @SuppressWarnings("deprecation")
+    static String wakeScreen(Context c) {
+        PowerManager pm = c.getSystemService(PowerManager.class);
+        if (pm.isInteractive()) return "";
+        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "MakroStudio:wake");
+        wl.acquire(5000);
+        return "";
+    }
+
+    /** Screenshot über die Bedienungshilfe (Android 11+). callback erhält Bitmap oder null. */
+    static String screenshot(java.util.function.Consumer<android.graphics.Bitmap> callback) {
+        AccessibilityHelper s = instance;
+        if (s == null) return NOT_ENABLED;
+        if (Build.VERSION.SDK_INT < 30) return "Bildvergleich benötigt Android 11 oder neuer";
+        s.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, s.getMainExecutor(), new TakeScreenshotCallback() {
+            @Override
+            public void onSuccess(ScreenshotResult result) {
+                android.graphics.Bitmap hw = android.graphics.Bitmap.wrapHardwareBuffer(result.getHardwareBuffer(), result.getColorSpace());
+                android.graphics.Bitmap bmp = hw == null ? null : hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
+                result.getHardwareBuffer().close();
+                callback.accept(bmp);
+            }
+
+            @Override
+            public void onFailure(int errorCode) {
+                callback.accept(null);
+            }
+        });
         return "";
     }
 

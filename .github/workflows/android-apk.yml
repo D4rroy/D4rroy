@@ -44,7 +44,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: macro-creator/android
-          script: ./gradlew --no-daemon connectedDebugAndroidTest && adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I
+          script: ./gradlew --no-daemon connectedDebugAndroidTest && adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I ImageMatcherTest:I
 
       - name: Testbericht hochladen
         if: always()

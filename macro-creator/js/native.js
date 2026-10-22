@@ -77,15 +77,25 @@
     uiSwipe: (x1, y1, x2, y2, ms, percent) => check(A.uiSwipe(Number(x1), Number(y1), Number(x2), Number(y2), Math.round(ms), !!percent)),
     uiSetText: (text) => check(A.uiSetText(String(text))),
     screenContains: (query, match) => A.screenContains(String(query), match),
-    pinUnlock: (pin, enter) => check(A.pinUnlock(String(pin), !!enter)),
+    pinUnlock: (pin, enter, digitDelay, swipeDelay) => check(A.pinUnlock(String(pin), !!enter, Math.round(digitDelay || 150), Math.round(swipeDelay || 800))),
+    wakeScreen: () => check(A.wakeScreen()),
+    foregroundActivity: () => A.foregroundActivity(),
+    foregroundAppName: () => A.foregroundAppName(),
+    pickImage: () => call('pickImage'),
+    imagePreview: (name) => A.imagePreview(String(name)),
+    async findImage(name, region, threshold) {
+      const res = JSON.parse(await call('findImage', String(name), region || '', Number(threshold)));
+      if (res.error) throw new Error(res.error);
+      return res;
+    },
     isDeviceLocked: () => A.isDeviceLocked(),
-    sendIntent: (o) => check(A.sendIntent(o.target, o.action || '', o.data || '', o.mime || '', o.pkg || '', o.cls || '', JSON.stringify(o.extras || {}))),
+    sendIntent: (o) => check(A.sendIntent(o.target, o.action || '', o.data || '', o.mime || '', o.pkg || '', o.cls || '', o.category || '', Math.round(Number(o.flags) || 0), JSON.stringify(o.extras || {}))),
 
     // ---- Berechtigungen & Hintergrund
     permissions: () => JSON.parse(A.permissions()),
     requestPermission: (which) => call('requestPermission', which),
     setBackground: (key, on) => A.setBackground(key, !!on),
-    serviceStatus: (text) => A.serviceStatus(String(text)),
+    serviceStatus: (text, title) => A.serviceStatus(String(text), String(title || '')),
     startedByBoot: () => A.startedByBoot(),
   };
 })();

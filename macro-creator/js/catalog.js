@@ -867,6 +867,7 @@
     params: [
       { key: 'var', label: 'Variable', type: 'var', required: true },
       { key: 'op', label: 'Vorgang', type: 'select', options: SETVAR_OPS, default: 'set' },
+      { key: 'key', label: 'Eintrag im Wörterbuch (optional), z. B. [Buttons][ok][centerX]', type: 'text', default: '', showIf: (p) => p.op !== 'toggle' },
       { key: 'value', label: 'Wert', type: 'text', magic: true, default: '', showIf: (p) => p.op === 'set' },
       { key: 'expr', label: 'Ausdruck, z. B. {v=zaehler} * 2 + 1', type: 'text', magic: true, default: '', showIf: (p) => p.op === 'expr' },
       { key: 'amount', label: 'Betrag', type: 'number', default: 1, showIf: (p) => p.op === 'inc' || p.op === 'dec' },
@@ -886,7 +887,9 @@
       return n;
     },
     run(ctx, p) {
-      const cur = MS.vars.get(p.var, ctx);
+      const keys = p.key ? MS.vars.parsePath('_' + p.key).keys : [];
+      const ref = MS.vars.parseRef(p.var);
+      const cur = keys.length && ref ? MS.vars.lookup(ref.scope, ref.name + p.key, ctx) : MS.vars.get(p.var, ctx);
       let v;
       switch (p.op) {
         case 'set': v = M(p.value, ctx); break;
@@ -899,6 +902,12 @@
           v = Math.floor(Math.random() * (b - a + 1)) + a;
           break;
         }
+      }
+      if (keys.length) {
+        // Zahlen als Zahl speichern, damit z. B. Koordinaten weiter rechnen
+        const num = MS.vars.toNumber(v);
+        MS.vars.setPath(p.var, keys, typeof v === 'string' && Number.isFinite(num) && v.trim() !== '' ? num : v, ctx);
+        return;
       }
       MS.vars.set(p.var, v, ctx);
     },
@@ -992,13 +1001,13 @@
     run: (ctx, p) => MS.native.launchApp(p.app),
   });
 
-  const SYSTEM_ACTIONS = [['back', 'Zurück'], ['home', 'Startbildschirm'], ['recents', 'Letzte Apps'], ['notifications', 'Benachrichtigungen öffnen'], ['quick_settings', 'Schnelleinstellungen öffnen'], ['lock_screen', 'Bildschirm sperren'], ['screenshot', 'Screenshot'], ['power_dialog', 'Ein/Aus-Menü']];
+  const SYSTEM_ACTIONS = [['wake_screen', 'Bildschirm einschalten'], ['back', 'Zurück'], ['home', 'Startbildschirm'], ['recents', 'Letzte Apps'], ['notifications', 'Benachrichtigungen öffnen'], ['quick_settings', 'Schnelleinstellungen öffnen'], ['lock_screen', 'Bildschirm sperren'], ['screenshot', 'Screenshot'], ['power_dialog', 'Ein/Aus-Menü']];
   A('system_action', {
     name: 'Systemaktion', icon: 'smart_button', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
     help: 'Führt eine Systemtaste oder -funktion aus. Benötigt die Bedienungshilfe.',
     params: [{ key: 'action', label: 'Aktion', type: 'select', options: SYSTEM_ACTIONS, default: 'home' }],
     describe: (p) => opt(SYSTEM_ACTIONS, p.action),
-    run: (ctx, p) => MS.native.systemAction(p.action),
+    run: (ctx, p) => (p.action === 'wake_screen' ? MS.native.wakeScreen() : MS.native.systemAction(p.action)),
   });
 
   const STREAMS = [['media', 'Medien'], ['ring', 'Klingelton'], ['notification', 'Benachrichtigungen'], ['alarm', 'Wecker'], ['call', 'Anrufe'], ['system', 'System']];
@@ -1064,12 +1073,12 @@
       { key: 'query', label: 'Text bzw. View-ID', type: 'text', magic: true, default: '', showIf: (p) => (p.mode === 'click' || p.mode === 'long_click') && p.target !== 'coords' },
       { key: 'match', label: 'Vergleich', type: 'select', options: MATCH, default: 'contains', showIf: (p) => (p.mode === 'click' || p.mode === 'long_click') && p.target === 'text' },
       { key: 'percent', label: 'Positionen in % der Bildschirmgröße', type: 'bool', default: true, showIf: (p) => p.mode === 'swipe' || p.target === 'coords' },
-      { key: 'x', label: 'X', type: 'number', default: 50, showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
-      { key: 'y', label: 'Y', type: 'number', default: 50, showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
-      { key: 'x1', label: 'Start X', type: 'number', default: 50, showIf: (p) => p.mode === 'swipe' },
-      { key: 'y1', label: 'Start Y', type: 'number', default: 80, showIf: (p) => p.mode === 'swipe' },
-      { key: 'x2', label: 'Ende X', type: 'number', default: 50, showIf: (p) => p.mode === 'swipe' },
-      { key: 'y2', label: 'Ende Y', type: 'number', default: 20, showIf: (p) => p.mode === 'swipe' },
+      { key: 'x', label: 'X (Zahl oder Magic Text, z. B. {lv=buttons[ok][centerX]})', type: 'text', magic: true, default: '50', showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
+      { key: 'y', label: 'Y (Zahl oder Magic Text, z. B. {lv=buttons[ok][centerX]})', type: 'text', magic: true, default: '50', showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
+      { key: 'x1', label: 'Start X', type: 'text', magic: true, default: '50', showIf: (p) => p.mode === 'swipe' },
+      { key: 'y1', label: 'Start Y', type: 'text', magic: true, default: '80', showIf: (p) => p.mode === 'swipe' },
+      { key: 'x2', label: 'Ende X', type: 'text', magic: true, default: '50', showIf: (p) => p.mode === 'swipe' },
+      { key: 'y2', label: 'Ende Y', type: 'text', magic: true, default: '20', showIf: (p) => p.mode === 'swipe' },
       { key: 'duration', label: 'Dauer in ms', type: 'number', min: 1, default: 300, showIf: (p) => p.mode === 'swipe' },
       { key: 'text', label: 'Text', type: 'text', magic: true, default: '', showIf: (p) => p.mode === 'set_text' },
     ],
@@ -1080,9 +1089,15 @@
       return `${p.mode === 'long_click' ? 'Lange drücken' : 'Tippen'}: ${what}`;
     },
     run(ctx, p) {
-      if (p.mode === 'swipe') return MS.native.uiSwipe(p.x1, p.y1, p.x2, p.y2, Number(p.duration) || 300, p.percent);
+      const n = (v, label) => {
+        const x = MS.vars.toNumber(M(String(v ?? ''), ctx));
+        if (!Number.isFinite(x)) throw new Error(`${label} ist keine Zahl: „${M(String(v ?? ''), ctx)}“`);
+        return x;
+      };
+      if (p.mode === 'swipe') return MS.native.uiSwipe(n(p.x1, 'Start X'), n(p.y1, 'Start Y'), n(p.x2, 'Ende X'), n(p.y2, 'Ende Y'), Number(p.duration) || 300, p.percent);
       if (p.mode === 'set_text') return MS.native.uiSetText(M(p.text, ctx));
-      return MS.native.uiClick(p.target, M(p.query, ctx), p.match, p.mode === 'long_click', p.x, p.y, p.percent);
+      if (p.target === 'coords') return MS.native.uiClick('coords', '', 'contains', p.mode === 'long_click', n(p.x, 'X'), n(p.y, 'Y'), p.percent);
+      return MS.native.uiClick(p.target, M(p.query, ctx), p.match, p.mode === 'long_click', 0, 0, false);
     },
   });
 
@@ -1092,12 +1107,14 @@
     params: [
       { key: 'pin', label: 'PIN (nur Ziffern)', type: 'text', default: '', required: true },
       { key: 'enter', label: 'Danach „OK“ drücken', type: 'bool', default: true },
+      { key: 'swipeDelay', label: 'Wartezeit nach dem Hochwischen (ms)', type: 'number', min: 100, default: 800 },
+      { key: 'digitDelay', label: 'Wartezeit zwischen Ziffern (ms)', type: 'number', min: 20, default: 150 },
     ],
     describe: (p) => 'PIN ' + '•'.repeat(String(p.pin || '').length),
     run(ctx, p) {
       const pin = String(p.pin || '').replace(/\D/g, '');
       if (!pin) throw new Error('Keine PIN eingetragen');
-      return MS.native.pinUnlock(pin, p.enter);
+      return MS.native.pinUnlock(pin, p.enter, Number(p.digitDelay) || 150, Number(p.swipeDelay) || 800);
     },
   });
 
@@ -1110,8 +1127,10 @@
       { key: 'action', label: 'Action', type: 'text', magic: true, default: '' },
       { key: 'data', label: 'Daten (URI)', type: 'text', magic: true, default: '' },
       { key: 'mime', label: 'MIME-Typ', type: 'text', default: '' },
-      { key: 'pkg', label: 'Paket', type: 'text', default: '' },
-      { key: 'cls', label: 'Klasse', type: 'text', default: '' },
+      { key: 'category', label: 'Kategorie', type: 'text', default: '' },
+      { key: 'pkg', label: 'Paket', type: 'text', magic: true, default: '' },
+      { key: 'cls', label: 'Klasse', type: 'text', magic: true, default: '' },
+      { key: 'newTask', label: 'In neuer Aufgabe starten (FLAG_ACTIVITY_NEW_TASK)', type: 'bool', default: true, showIf: (p) => p.target === 'activity' },
       { key: 'extras', label: 'Extras (Name=Wert je Zeile)', type: 'textarea', magic: true, default: '' },
     ],
     describe: (p) => `${opt(INTENT_TARGETS, p.target).split(' ')[0]}: ${p.action || p.data || p.pkg || '–'}`,
@@ -1123,20 +1142,60 @@
         const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
         extras[k] = v === 'true' ? true : v === 'false' ? false : /^-?\d+$/.test(v) ? Number(v) : /^-?\d+\.\d+$/.test(v) ? Number(v) : v;
       });
-      return MS.native.sendIntent({ target: p.target, action: M(p.action, ctx), data: M(p.data, ctx), mime: p.mime, pkg: p.pkg, cls: p.cls, extras });
+      return MS.native.sendIntent({ target: p.target, action: M(p.action, ctx), data: M(p.data, ctx), mime: p.mime, pkg: M(p.pkg, ctx), cls: M(p.cls, ctx), category: p.category, flags: p.target === 'activity' && p.newTask ? 0x10000000 : 0, extras });
     },
   });
 
   A('service_text', {
     name: 'Text der Daueranzeige', icon: 'notification_important', cat: 'notify', supported: nativeOnly,
     help: 'Ändert den Text der Benachrichtigung „Makro Studio läuft“ (Hintergrunddienst). Leer lassen für den Standardtext.',
-    params: [{ key: 'text', label: 'Text', type: 'text', magic: true, default: '' }],
-    describe: (p) => p.text || 'Standardtext',
+    params: [
+      { key: 'title', label: 'Titel (optional)', type: 'text', magic: true, default: '' },
+      { key: 'text', label: 'Text', type: 'text', magic: true, default: '' },
+    ],
+    describe: (p) => [p.title, p.text].filter(Boolean).join(': ') || 'Standardtext',
     run(ctx, p) {
-      const t = M(p.text, ctx);
-      MS.native.customStatus = !!t;
-      if (t) MS.native.serviceStatus(t);
+      const t = M(p.text, ctx), title = M(p.title, ctx);
+      MS.native.customStatus = !!(t || title);
+      if (MS.native.customStatus) MS.native.serviceStatus(t, title);
       else MS.bus.emit('store', 'ui');
+    },
+  });
+
+  A('image_check', {
+    name: 'Bild auf dem Bildschirm suchen', icon: 'image_search', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Macht einen Screenshot und sucht darin ein Vergleichsbild (z. B. einen Button oder eine Truhe). Ergebnis: Ja/Nein-Variable und optional die Fundstelle (centerX, centerY, startX, startY, endX, endY, matchPercent) in einem Wörterbuch. Benötigt die Bedienungshilfe und Android 11.',
+    params: [
+      { key: 'image', label: 'Vergleichsbild', type: 'image', required: true },
+      { key: 'useRegion', label: 'Nur in einem Bereich suchen (schneller, sicherer)', type: 'bool', default: false },
+      { key: 'percent', label: 'Bereich in % der Bildschirmgröße', type: 'bool', default: false, showIf: (p) => p.useRegion },
+      { key: 'rx', label: 'Bereich X', type: 'number', default: 0, showIf: (p) => p.useRegion },
+      { key: 'ry', label: 'Bereich Y', type: 'number', default: 0, showIf: (p) => p.useRegion },
+      { key: 'rw', label: 'Bereich Breite', type: 'number', default: 500, showIf: (p) => p.useRegion },
+      { key: 'rh', label: 'Bereich Höhe', type: 'number', default: 500, showIf: (p) => p.useRegion },
+      { key: 'threshold', label: 'Mindestübereinstimmung in %', type: 'number', min: 50, max: 100, default: 85 },
+      { key: 'resultVar', label: 'Gefunden (Ja/Nein) speichern in', type: 'var', varTypes: ['boolean'], required: true },
+      { key: 'posVar', label: 'Fundstelle speichern in (Wörterbuch, optional)', type: 'var', varTypes: ['dictionary'], optional: true },
+      { key: 'posKey', label: 'Unter dem Eintrag (optional), z. B. [Koordinaten Chest]', type: 'text', default: '', showIf: (p) => !!p.posVar },
+    ],
+    describe: (p) => `${p.imageLabel || 'Vergleichsbild'}${p.useRegion ? ` in ${p.rx},${p.ry} ${p.rw}×${p.rh}${p.percent ? ' %' : ''}` : ''} → ${varName(p.resultVar)}`,
+    async run(ctx, p) {
+      if (!p.image) throw new Error('Kein Vergleichsbild ausgewählt');
+      let region = '';
+      if (p.useRegion) {
+        const W = window.screen.width * (window.devicePixelRatio || 1), H = window.screen.height * (window.devicePixelRatio || 1);
+        const f = (v, total) => Math.round(p.percent ? (Number(v) / 100) * total : Number(v));
+        region = [f(p.rx, W), f(p.ry, H), f(p.rw, W), f(p.rh, H)].join(',');
+      }
+      const res = await MS.native.findImage(p.image, region, (Number(p.threshold) || 85) / 100);
+      MS.vars.set(p.resultVar, res.found, ctx);
+      if (p.posVar) {
+        const pos = { centerX: res.found ? res.centerX : -1, centerY: res.found ? res.centerY : -1, startX: res.found ? res.startX : -1, startY: res.found ? res.startY : -1, endX: res.found ? res.endX : -1, endY: res.found ? res.endY : -1, matchPercent: res.matchPercent };
+        const keys = p.posKey ? MS.vars.parsePath('_' + p.posKey).keys : [];
+        if (keys.length) MS.vars.setPath(p.posVar, keys, pos, ctx);
+        else MS.vars.set(p.posVar, pos, ctx);
+      }
+      MS.log('action', `Bildsuche: ${res.found ? 'gefunden' : 'nicht gefunden'} (${res.matchPercent} % Übereinstimmung)`, ctx.macroName);
     },
   });
 

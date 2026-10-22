@@ -473,3 +473,6 @@ select.input { appearance: auto; }
 .import-missing { margin: 6px 0 0 26px; color: var(--danger); font-size: 13px; }
 .import-missing span { font-weight: 500; }
 .import-check { margin: 6px 0 0 26px; padding-left: 16px; color: var(--warn-text); font-size: 13px; }
+.image-preview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.image-preview img { max-width: 120px; max-height: 120px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); }
+.input.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }

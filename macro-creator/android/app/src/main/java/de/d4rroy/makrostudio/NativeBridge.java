@@ -324,8 +324,8 @@ class NativeBridge {
     }
 
     @JavascriptInterface
-    public void serviceStatus(String text) {
-        host.main.post(() -> MacroService.setStatus(text));
+    public void serviceStatus(String text, String title) {
+        host.main.post(() -> MacroService.setStatus(text, title));
     }
 
     /** true genau einmal, wenn die Engine durch den Gerätestart gestartet wurde. */
@@ -623,8 +623,129 @@ class NativeBridge {
 
     /** Läuft absichtlich auf dem JavaBridge-Thread, weil zwischen den Schritten gewartet wird. */
     @JavascriptInterface
-    public String pinUnlock(String pin, boolean pressEnter) {
-        return AccessibilityHelper.pinUnlock(pin, pressEnter);
+    public String pinUnlock(String pin, boolean pressEnter, int digitDelay, int swipeDelay) {
+        return AccessibilityHelper.pinUnlock(pin, pressEnter, digitDelay, swipeDelay);
+    }
+
+    @JavascriptInterface
+    public String wakeScreen() {
+        return AccessibilityHelper.wakeScreen(app);
+    }
+
+    @JavascriptInterface
+    public String foregroundActivity() {
+        return AccessibilityHelper.currentActivity;
+    }
+
+    @JavascriptInterface
+    public String foregroundAppName() {
+        String pkg = AccessibilityHelper.currentPackage;
+        return pkg.isEmpty() ? "" : appLabel(app, pkg);
+    }
+
+    // ------------------------------------------------- Bild auf dem Bildschirm
+    private java.io.File imageDir() {
+        java.io.File d = new java.io.File(app.getFilesDir(), "images");
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+    private String pendingImageCallback;
+
+    /** Lässt ein Vergleichsbild auswählen und speichert eine Kopie in der App. Ergebnis: Dateiname oder "". */
+    @JavascriptInterface
+    public void pickImage(String callbackId) {
+        host.main.post(() -> {
+            Activity a = host.activity();
+            if (a == null) {
+                resolve(callbackId, "\"\"");
+                return;
+            }
+            pendingImageCallback = callbackId;
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
+            try {
+                a.startActivityForResult(i, EngineHost.REQ_IMAGE);
+            } catch (Exception e) {
+                pendingImageCallback = null;
+                resolve(callbackId, "\"\"");
+            }
+        });
+    }
+
+    void onImagePicked(Uri uri) {
+        String cb = pendingImageCallback;
+        pendingImageCallback = null;
+        if (cb == null) return;
+        if (uri == null) {
+            resolve(cb, "\"\"");
+            return;
+        }
+        String name = "img_" + System.currentTimeMillis() + ".png";
+        try (java.io.InputStream in = app.getContentResolver().openInputStream(uri)) {
+            android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(in);
+            if (bmp == null) throw new java.io.IOException("Kein Bild");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(imageDir(), name))) {
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            }
+            resolve(cb, JSONObject.quote(name));
+        } catch (Exception e) {
+            toast("Bild konnte nicht geladen werden: " + e.getMessage());
+            resolve(cb, "\"\"");
+        }
+    }
+
+    /** Kleine Vorschau eines gespeicherten Vergleichsbilds als data:-URL (für den Editor). */
+    @JavascriptInterface
+    public String imagePreview(String name) {
+        java.io.File f = new java.io.File(imageDir(), new java.io.File(name).getName());
+        android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(f.getPath());
+        if (b == null) return "";
+        float scale = Math.min(1f, 240f / Math.max(b.getWidth(), b.getHeight()));
+        android.graphics.Bitmap small = android.graphics.Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * scale)), Math.max(1, Math.round(b.getHeight() * scale)), true);
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        small.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, bos);
+        return "data:image/png;base64," + android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+                + "#" + b.getWidth() + "x" + b.getHeight();
+    }
+
+    /**
+     * Sucht das Vergleichsbild auf dem Bildschirm. region: "x,y,w,h" in Pixeln oder leer.
+     * Ergebnis (JSON): {found, centerX, centerY, startX, startY, endX, endY, matchPercent} oder {error}.
+     */
+    @JavascriptInterface
+    public void findImage(String name, String region, double threshold, String callbackId) {
+        java.io.File f = new java.io.File(imageDir(), new java.io.File(name).getName());
+        android.graphics.Bitmap template = android.graphics.BitmapFactory.decodeFile(f.getPath());
+        if (template == null) {
+            resolve(callbackId, JSONObject.quote("{\"error\":\"Kein Vergleichsbild ausgewählt\"}"));
+            return;
+        }
+        String err = onMain(() -> AccessibilityHelper.screenshot((screen) -> {
+            if (screen == null) {
+                resolve(callbackId, JSONObject.quote("{\"error\":\"Screenshot nicht möglich\"}"));
+                return;
+            }
+            new Thread(() -> {
+                int[] r = null;
+                if (!region.isEmpty()) {
+                    String[] p = region.split(",");
+                    r = new int[] { Integer.parseInt(p[0].trim()), Integer.parseInt(p[1].trim()), Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()) };
+                }
+                ImageMatcher.Result m = ImageMatcher.find(screen, template, r, threshold);
+                try {
+                    JSONObject o = new JSONObject()
+                            .put("found", m.found)
+                            .put("centerX", (m.startX + m.endX) / 2).put("centerY", (m.startY + m.endY) / 2)
+                            .put("startX", m.startX).put("startY", m.startY).put("endX", m.endX).put("endY", m.endY)
+                            .put("matchPercent", Math.round(Math.max(0, m.score) * 100))
+                            .put("screenWidth", screen.getWidth()).put("screenHeight", screen.getHeight());
+                    resolve(callbackId, JSONObject.quote(o.toString()));
+                } catch (JSONException e) {
+                    resolve(callbackId, JSONObject.quote("{\"error\":\"Auswertung fehlgeschlagen\"}"));
+                }
+            }).start();
+        }), "Screenshot fehlgeschlagen");
+        if (err != null && !err.isEmpty()) resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(err) + "}"));
     }
 
     @JavascriptInterface
@@ -635,10 +756,12 @@ class NativeBridge {
 
     /** Sendet einen Android-Intent. target: activity | broadcast | service; extras als JSON-Objekt. */
     @JavascriptInterface
-    public String sendIntent(String target, String action, String data, String mime, String pkg, String cls, String extrasJson) {
+    public String sendIntent(String target, String action, String data, String mime, String pkg, String cls, String category, int flags, String extrasJson) {
         try {
             Intent i = new Intent();
             if (!action.isEmpty()) i.setAction(action);
+            if (!category.isEmpty()) i.addCategory(category);
+            if (flags != 0) i.addFlags(flags);
             if (!data.isEmpty() && !mime.isEmpty()) i.setDataAndType(Uri.parse(data), mime);
             else if (!data.isEmpty()) i.setData(Uri.parse(data));
             else if (!mime.isEmpty()) i.setType(mime);

@@ -11,7 +11,7 @@
   const { uid } = MS.util;
 
   // MacroDroid-Variablentypen
-  const VAR_TYPES = { 0: 'boolean', 1: 'integer', 2: 'string', 3: 'decimal' };
+  const VAR_TYPES = { 0: 'boolean', 1: 'integer', 2: 'string', 3: 'decimal' }; // 4 = Wörterbuch, 5 = Liste
   // Wochentage in MacroDroid: Montag … Sonntag → JavaScript-getDay()
   const MD_DAYS = [1, 2, 3, 4, 5, 6, 0];
 
@@ -62,14 +62,13 @@
   function convertVariable(v, report, where) {
     if (!v || typeof v !== 'object' || !v.m_name) return null;
     let type = VAR_TYPES[v.m_type];
-    if (!type) {
-      type = 'string';
-      report.warn(`${where}: Variable „${v.m_name}“ (Liste/Wörterbuch) wurde als Text übernommen.`);
-    }
-    let value = type === 'boolean' ? !!v.m_booleanValue : type === 'integer' ? num(v.m_intValue) : type === 'decimal' ? num(v.m_decimalValue) : str(v.m_stringValue);
-    if (!VAR_TYPES[v.m_type] && v.dictionary && Array.isArray(v.dictionary.entries) && v.dictionary.entries.length) {
-      // Einträge als JSON-Text, damit die Inhalte nicht verloren gehen
-      try { value = JSON.stringify(v.dictionary.entries.map(dictEntry)); } catch (e) { value = ''; }
+    let value;
+    if (type) {
+      value = type === 'boolean' ? !!v.m_booleanValue : type === 'integer' ? num(v.m_intValue) : type === 'decimal' ? num(v.m_decimalValue) : str(v.m_stringValue);
+    } else {
+      // Wörterbuch (4) oder Liste (5) → Wörterbuch-Variable mit verschachtelten Einträgen
+      type = 'dictionary';
+      value = v.dictionary ? mdDict(v.dictionary) : {};
     }
     const out = { name: String(v.m_name), type, value };
     if (v.supportsInput && v.supportsOutput) out.io = 'both';
@@ -77,12 +76,23 @@
     return out;
   }
 
-  function dictEntry(e) {
-    const val = e && e.variable ? e.variable : e;
-    if (!val || typeof val !== 'object') return val;
-    const t = VAR_TYPES[val.m_type];
-    const v = t === 'boolean' ? !!val.m_booleanValue : t === 'integer' ? num(val.m_intValue) : t === 'decimal' ? num(val.m_decimalValue) : t === 'string' ? str(val.m_stringValue) : val.dictionary ? val.dictionary.entries.map(dictEntry) : null;
-    return e.key !== undefined ? { [e.key]: v } : v;
+  /** MacroDroid-Wörterbuch/Liste → JavaScript-Objekt/Array. */
+  function mdDict(d) {
+    const entries = (d && d.entries) || [];
+    const vals = entries.map((e) => [e.key, mdValue(e.variable !== undefined ? e.variable : e)]);
+    if (d && d.isArray) return vals.map(([, v]) => v);
+    const o = {};
+    vals.forEach(([k, v]) => { o[k === undefined ? String(Object.keys(o).length + 1) : k] = v; });
+    return o;
+  }
+  function mdValue(v) {
+    if (!v || typeof v !== 'object') return v;
+    if (Array.isArray(v.entries)) return mdDict(v);
+    if (v.dictionary && Array.isArray(v.dictionary.entries)) return mdDict(v.dictionary);
+    for (const k of ['intValue', 'textValue', 'stringValue', 'booleanValue', 'doubleValue', 'decimalValue']) if (v[k] !== undefined) return v[k];
+    const t = VAR_TYPES[v.m_type];
+    if (t) return t === 'boolean' ? !!v.m_booleanValue : t === 'integer' ? num(v.m_intValue) : t === 'decimal' ? num(v.m_decimalValue) : str(v.m_stringValue);
+    return null;
   }
 
   /** Erstes vorhandenes Feld aus einer Liste möglicher Feldnamen. */
@@ -98,10 +108,11 @@
     },
     DayTrigger(t, r) { return TRIGGERS.TimerTrigger(t, r); },
     RegularIntervalTrigger(t, r) {
-      const n = num(first(t.m_interval, t.m_intervalSeconds, t.interval), 60);
-      const unit = { 0: 's', 1: 'min', 2: 'h' }[t.m_unit];
-      r.check('Regelmäßiges Intervall: Wert und Einheit bitte prüfen.');
-      return unit ? make('trigger', 'interval', { value: n, unit }) : make('trigger', 'interval', n % 60 === 0 ? { value: n / 60, unit: 'min' } : { value: n, unit: 's' });
+      if (t.m_useIntervalVariable) r.check('Regelmäßiges Intervall nutzte eine Variable – fester Wert übernommen, bitte prüfen.');
+      const secs = num(t.m_seconds) + num(t.m_minutes) * 60 + num(t.m_hours) * 3600 || num(first(t.m_interval, t.m_intervalSeconds), 60);
+      if (secs % 3600 === 0) return make('trigger', 'interval', { value: secs / 3600, unit: 'h' });
+      if (secs % 60 === 0) return make('trigger', 'interval', { value: secs / 60, unit: 'min' });
+      return make('trigger', 'interval', { value: secs, unit: 's' });
     },
     SunriseSunsetTrigger(t) {
       return make('trigger', 'sun', { event: num(t.m_option) === 1 ? 'sunset' : 'sunrise', offset: num(first(t.m_timeAdjust, t.m_offset), 0) });
@@ -173,34 +184,28 @@
     DayOfWeekConstraint: (c) => make('constraint', 'weekday', { days: days(c.m_daysOfWeek) }),
     BatteryLevelConstraint: (c) => make('constraint', 'battery_level', { op: c.m_greaterThan ? 'gt' : 'lt', level: num(c.m_batteryLevel, 50) }),
     ExternalPowerConstraint: (c) => make('constraint', 'charging', { state: c.m_externalPower === false ? 'not' : 'charging' }),
-    ActiveApplicationConstraint(c) {
-      const pkgs = c.m_packageNameList || c.packageNameList || [], names = c.m_applicationNameList || c.applicationNameList || [];
-      return make('constraint', 'foreground_app', { app: str(pkgs[0]), appLabel: str(names[0] || pkgs[0]) }, { invert: c.m_running === false || c.m_option === 1 });
+    ActiveApplicationConstraint(c, r) {
+      const pkgs = c.m_packageNameList || [], names = c.m_applicationNameList || [];
+      if (pkgs.length > 1) r.check(`Aktive Anwendung: nur die erste von ${pkgs.length} Apps wurde übernommen.`);
+      // m_active=false bedeutet „App ist NICHT aktiv (im Vordergrund)“
+      return make('constraint', 'foreground_app', { app: str(pkgs[0]), appLabel: str(names[0] || pkgs[0]) }, { invert: c.m_active === false });
     },
     DeviceLockedConstraint: (c) => make('constraint', 'device_locked', { state: pick(c, 'm_locked', 'locked') === false || num(c.m_option) === 1 ? 'unlocked' : 'locked' }),
     LastRunTimeConstraint(c, r, ctx) {
-      const secs = num(pick(c, 'm_timePeriodSeconds', 'm_seconds', 'timePeriodSeconds', 'm_time'), 0) + num(c.m_minutes) * 60 + num(c.m_hours) * 3600 + num(c.m_days) * 86400;
-      const guid = pick(c, 'm_macroGuid', 'macroGuid', 'm_GUID');
-      const name = pick(c, 'm_macroName', 'macroName');
-      r.check('Zuletzt ausgeführt: Zeitraum und Richtung bitte prüfen.');
-      const unit = secs % 3600 === 0 && secs ? ['h', secs / 3600] : secs % 60 === 0 && secs ? ['min', secs / 60] : ['s', secs];
-      return make('constraint', 'last_run', {
-        macro: name || guid !== undefined ? ctx.macroRef(name, guid) || '__this' : '__this',
-        op: c.m_notRunInPeriod === false || num(c.m_option) === 1 ? 'less' : 'more', value: unit[1], unit: unit[0],
-      });
+      const secs = num(c.m_timePeriodSeconds);
+      if (c.useVariableTimePeriod) r.check('Zuletzt ausgeführt nutzte eine Variable als Zeitraum – fester Wert übernommen.');
+      const unit = secs && secs % 3600 === 0 ? ['h', secs / 3600] : secs && secs % 60 === 0 ? ['min', secs / 60] : ['s', secs];
+      const names = c.m_macroNames || [], ids = c.m_macroIds || [];
+      if (names.length > 1) r.check(`Zuletzt ausgeführt: nur das erste von ${names.length} Makros wurde übernommen.`);
+      const macro = c.checkThisMacro || !names.length ? '__this' : ctx.macroRef(names[0], ids[0]);
+      // m_invoked=true: in diesem Zeitraum ausgeführt; false: NICHT in diesem Zeitraum ausgeführt
+      return make('constraint', 'last_run', { macro, op: c.m_invoked ? 'less' : 'more', value: unit[1], unit: unit[0] });
     },
     CompareValueConstraint(c, r) {
       const ops = { 0: 'eq', 1: 'ne', 2: 'lt', 3: 'gt', 4: 'le', 5: 'ge' };
-      let left = pick(c, 'm_value1', 'value1', 'lhsValue', 'leftValue', 'm_firstValue', 'm_text');
-      let right = pick(c, 'm_value2', 'value2', 'rhsValue', 'rightValue', 'm_secondValue', 'm_compareValue');
-      if (left === undefined || right === undefined) {
-        // Unbekannte Feldnamen: die ersten beiden Textfelder verwenden
-        const texts = Object.entries(c).filter(([k, v]) => typeof v === 'string' && !/^m_classType$|comment|Name$/i.test(k)).map(([, v]) => v);
-        left = left === undefined ? texts[0] : left;
-        right = right === undefined ? texts[1] : right;
-      }
-      r.check('Werte vergleichen: Werte und Vergleichsart bitte prüfen.');
-      return make('constraint', 'compare_values', { left: str(left), op: ops[num(pick(c, 'm_option', 'comparison', 'operator'))] || 'eq', right: str(right) });
+      const t = num(c.comparisonType);
+      if (!(t in ops)) r.check(`Werte vergleichen: Vergleichsart ${t} bitte prüfen.`);
+      return make('constraint', 'compare_values', { left: str(c.value1), op: c.enableRegex ? 'regex' : ops[t] || 'eq', right: str(c.value2) });
     },
     MusicActiveConstraint: (c) => make('constraint', 'music_active', { state: c.m_musicActive === false ? 'no' : 'yes' }),
     OrientationConstraint: (c) => make('constraint', 'orientation', { state: c.m_portrait === false ? 'landscape' : 'portrait' }),
@@ -211,11 +216,23 @@
     MacroEnabledConstraint: (c, r, ctx) => make('constraint', 'macro_state', { macro: ctx.macroRef(c.m_macroName, c.m_GUID), state: c.m_enabled === false ? 'off' : 'on' }),
     MacroDroidVariableConstraint(c, r) {
       const v = c.m_variable || {};
-      const ops = { 0: 'eq', 1: 'ne', 2: 'lt', 3: 'gt', 4: 'le', 5: 'ge' };
-      let value = first(c.m_stringComparisonValue, c.m_intComparisonValue, c.m_doubleComparisonValue, c.m_comparisonValue);
-      if (VAR_TYPES[v.m_type] === 'boolean') value = c.m_booleanValue === false ? 'false' : 'true';
-      if (c.m_option !== undefined && !(num(c.m_option) in ops)) r.check(`Variablen-Bedingung „${v.m_name}“: Vergleichsart bitte prüfen.`);
-      return make('constraint', 'variable', { var: varRef(v), op: ops[num(c.m_option)] || 'eq', value: str(value === undefined ? '' : value) });
+      const type = VAR_TYPES[v.m_type];
+      const other = c.m_otherValueToCompare;
+      const otherMagic = c.m_intCompareVariable && other && other.m_name ? `{${other.isLocalVar ? 'lv' : 'v'}=${other.m_name}}` : null;
+      let op = 'eq', value;
+      if (type === 'boolean') {
+        value = otherMagic || String(!!c.m_booleanValue);
+      } else if (type === 'integer' || type === 'decimal') {
+        op = c.m_intGreaterThan ? 'gt' : c.m_intLessThan ? 'lt' : c.m_intNotEqual ? 'ne' : 'eq';
+        value = otherMagic || String(type === 'integer' ? num(c.m_intValue) : num(c.m_doubleValue));
+      } else {
+        const k = num(c.m_stringComparisonType);
+        const eq = c.m_stringEqual !== false;
+        op = c.enableRegex ? 'regex' : k === 1 ? (eq ? 'contains' : 'not_contains') : k === 2 ? 'starts' : k === 3 ? 'ends' : eq ? 'eq' : 'ne';
+        if (k > 3) r.check(`Variablen-Bedingung „${v.m_name}“: Textvergleich ${k} bitte prüfen.`);
+        value = otherMagic || str(c.m_stringValue);
+      }
+      return make('constraint', 'variable', { var: varRef(v), op, value });
     },
     TriggerThatInvokedConstraint: (c, r, ctx) => make('constraint', 'trigger_fired', { trigger: ctx.triggerRef(c.m_siGuidThatInvoked), triggerLabel: str(c.m_triggerName) }, { invert: !!c.m_not }),
     LogicConstraint(c, r, ctx) {
@@ -296,7 +313,7 @@
       if (num(a.m_option) !== 0) r.check('Statusleiste: Zuklappen gibt es nicht – als „Benachrichtigungen öffnen“ übernommen.');
       return make('action', 'system_action', { action: 'notifications' });
     },
-    ScreenOnAction: (a) => (a.m_screenOff || a.m_screenOffNoLock ? make('action', 'system_action', { action: 'lock_screen' }) : null),
+    ScreenOnAction: (a) => make('action', 'system_action', { action: a.m_screenOff || a.m_screenOffNoLock ? 'lock_screen' : 'wake_screen' }),
     TakeScreenshotAction: () => make('action', 'system_action', { action: 'screenshot' }),
     OpenWebPageAction: (a) => make('action', 'open_url', { url: str(first(a.m_url, a.url, 'https://')), newTab: true }),
     HttpRequestAction(a, r) {
@@ -307,19 +324,33 @@
     SetBrightnessAction: (a) => make('action', 'brightness', { auto: !!a.m_autoBrightness, percent: num(first(a.m_brightnessPercent, a.m_brightness), 50) }),
     SilentModeVibrateOffAction: (a, r) => { r.check('Klingelmodus: gewählten Modus bitte prüfen.'); return make('action', 'ringer_mode', { mode: ({ 0: 'silent', 1: 'vibrate', 2: 'normal' })[num(first(a.option, a.m_option))] || 'silent' }); },
     VibrateEnableDisableAction: (a) => make('action', 'ringer_mode', { mode: num(a.m_option) === 1 ? 'normal' : 'vibrate' }),
-    SetVolumeAction: (a, r) => { r.check('Lautstärke: Kanal und Wert bitte prüfen.'); return make('action', 'volume', { stream: 'media', percent: num(first((a.m_streamVolumeArray || [])[0], a.m_volume), 50) }); },
+    SetVolumeAction(a, r) {
+      // Reihenfolge der Kanäle in MacroDroid
+      const STREAMS = ['alarm', 'media', 'notification', 'ring', 'system', 'call', 'call', 'system'];
+      const idx = a.m_streamIndexArray || [], vol = a.m_streamVolumeArray || [];
+      const out = [];
+      idx.forEach((on, i) => { if (on) out.push(make('action', 'volume', { stream: STREAMS[i] || 'media', percent: num(vol[i]) })); });
+      if (idx.some((on, i) => on && i >= 6)) r.check('Lautstärke: Bluetooth-/Bedienungshilfe-Kanal wurde ersetzt.');
+      if (!out.length) r.check('Lautstärke: kein Kanal ausgewählt.');
+      return out.length ? out : null;
+    },
     ControlMediaAction(a, r) {
       const map = { 0: 'next', 1: 'play_pause', 2: 'previous', 3: 'play', 4: 'pause', 5: 'stop' };
       if (!(num(a.optionInt) in map)) r.check(`Mediensteuerung „${str(a.m_option)}“ bitte prüfen.`);
       if (a.m_packageName) r.check(`Mediensteuerung: Befehl geht an die aktive Medien-App, nicht gezielt an ${str(a.m_applicationName || a.m_packageName)}.`);
       return make('action', 'media_control', { action: map[num(a.optionInt)] || 'play_pause' });
     },
-    UIInteractionAction(a, r) {
+    UIInteractionAction(a, r, ctx) {
       const cfg = a.uiInteractionConfiguration || {};
       const type = String(cfg.type || 'Click');
-      if (/swipe|gesture/i.test(type)) {
-        r.check('UI-Interaktion (Wischen): Start- und Endpunkt bitte prüfen.');
-        return make('action', 'ui_interaction', { mode: 'swipe', percent: true, x1: 50, y1: 80, x2: 50, y2: 20, duration: 300 });
+      const varMagic = (name) => (name ? ctx.magicFor(name) : null);
+      // Wischen/Geste (MacroDroid-Aktion 6)
+      if (num(a.action) === 6 || /gesture|swipe/i.test(type)) {
+        if (num(cfg.additionalFingers) > 0) r.check('UI-Interaktion: Gesten mit mehreren Fingern werden als Wischen mit einem Finger ausgeführt.');
+        return make('action', 'ui_interaction', {
+          mode: 'swipe', percent: !!cfg.xyPercentages, duration: num(cfg.durationMs, 300),
+          x1: String(num(cfg.startX)), y1: String(num(cfg.startY)), x2: String(num(cfg.endX)), y2: String(num(cfg.endY)),
+        });
       }
       if (/paste|text/i.test(type) && !/click/i.test(type)) {
         return make('action', 'ui_interaction', { mode: 'set_text', text: str(pick(cfg, 'textToPaste', 'text', 'textContent')) });
@@ -328,38 +359,51 @@
       const mode = cfg.longClick ? 'long_click' : 'click';
       const opt = num(cfg.clickOption);
       const pt = cfg.xyPoint || {};
-      if (cfg.textContent && opt !== 0) {
-        const idLike = /:id\//.test(cfg.textContent) || opt === 2;
-        return make('action', 'ui_interaction', { mode, target: idLike ? 'id' : 'text', query: str(cfg.textContent), match: cfg.useRegex ? 'regex' : num(cfg.textMatchOption) === 0 ? 'exact' : 'contains' });
+      if (cfg.xVarName || cfg.yVarName) {
+        return make('action', 'ui_interaction', { mode, target: 'coords', percent: !!cfg.xyPercentages, x: varMagic(cfg.xVarName) || String(num(pt.x)), y: varMagic(cfg.yVarName) || String(num(pt.y)) });
+      }
+      if (opt === 2 || (!cfg.textContent && !cfg.viewId && !cfg.contentDescription)) {
+        return make('action', 'ui_interaction', { mode, target: 'coords', percent: !!cfg.xyPercentages, x: String(num(pt.x)), y: String(num(pt.y)) });
       }
       if (cfg.viewId) return make('action', 'ui_interaction', { mode, target: 'id', query: str(cfg.viewId) });
-      return make('action', 'ui_interaction', { mode, target: 'coords', x: num(pt.x), y: num(pt.y), percent: !!cfg.xyPercentages });
+      return make('action', 'ui_interaction', { mode, target: 'text', query: str(cfg.textContent || cfg.contentDescription), match: cfg.useRegex ? 'regex' : num(cfg.textMatchOption) === 0 ? 'exact' : 'contains' });
     },
     PinUnlockAction(a, r) {
       r.check('Mit PIN entsperren: Die PIN ist in MacroDroid verschlüsselt gespeichert – bitte im Makro neu eintragen.');
-      return make('action', 'pin_unlock', { pin: '', enter: true });
+      return make('action', 'pin_unlock', { pin: '', enter: true, digitDelay: num(a.digitClickDelay, 150), swipeDelay: num(a.swipeUpDelay, 800) });
     },
     SendIntentAction(a, r) {
       const extras = [];
-      for (let i = 1; i <= 5; i++) {
-        const k = pick(a, `m_extra${i}Name`, `extra${i}Name`), v = pick(a, `m_extra${i}Value`, `extra${i}Value`);
-        if (k) extras.push(`${k}=${str(v)}`);
+      for (let i = 1; i <= 6; i++) {
+        const k = a[`m_extra${i}Name`];
+        if (k) extras.push(`${k}=${str(a[`m_extra${i}Value`])}`);
       }
-      if (Array.isArray(a.extras)) a.extras.forEach((e) => e && e.name && extras.push(`${e.name}=${str(e.value)}`));
-      r.check('Intent senden: Ziel, Action und Extras bitte prüfen.');
+      (a.additionalExtras || []).forEach((e) => { const k = pick(e, 'name', 'm_name', 'key'); if (k) extras.push(`${k}=${str(pick(e, 'value', 'm_value'))}`); });
+      const target = String(a.m_target || 'Activity').toLowerCase();
       return make('action', 'send_intent', {
-        target: ({ 0: 'activity', 1: 'service', 2: 'broadcast' })[num(pick(a, 'm_target', 'target', 'm_option'))] || 'activity',
-        action: str(pick(a, 'm_action', 'action')), data: str(pick(a, 'm_data', 'data', 'm_uri')), mime: str(pick(a, 'm_mimeType', 'mimeType')),
-        pkg: str(pick(a, 'm_packageName', 'packageName')), cls: str(pick(a, 'm_className', 'className')), extras: extras.join('\n'),
+        target: target.startsWith('broad') ? 'broadcast' : target.startsWith('serv') ? 'service' : 'activity',
+        action: str(a.m_action), data: str(a.m_data), mime: str(a.m_mimeType), category: str(a.m_category),
+        pkg: str(a.m_packageName), cls: str(a.m_className), newTask: (num(a.m_flags) & 0x10000000) !== 0 || !a.m_flags,
+        extras: extras.join('\n'),
       });
     },
-    MacroDroidNotificationTextAction: (a) => make('action', 'service_text', { text: str(pick(a, 'm_text', 'm_notificationText', 'text', 'notificationText')) }),
-    ActionGroupAction: (a) => make('action', 'group', { name: str(pick(a, 'm_name', 'groupName', 'name', 'm_comment')) || 'Gruppe' }),
+    MacroDroidNotificationTextAction: (a) => make('action', 'service_text', a.showCustom === false ? { title: '', text: '' } : { title: str(pick(a, 'title', 'm_title')), text: str(pick(a, 'body', 'm_text', 'text')) }),
+    ActionGroupAction: (a) => make('action', 'group', { name: str(pick(a, 'actionGroupName', 'm_name', 'name')).trim() || 'Gruppe' }),
     ActionGroupEndAction: () => make('action', 'end_group'),
-    SeparatorAction: (a) => make('action', 'comment', { text: '———— ' + str(pick(a, 'm_text', 'text', 'm_comment') || '') }),
-    CheckImageOnScreenAction(a, r) {
-      r.check('„Bild auf dem Bildschirm prüfen“: Das Vergleichsbild ist nicht in der .macro-Datei enthalten. Als Ersatz gibt es die Bedingung „Text auf dem Bildschirm“.');
-      return make('action', 'comment', { text: 'MacroDroid: Bild auf dem Bildschirm prüfen – nicht möglich (Vergleichsbild fehlt). Ersatz: Bedingung „Text auf dem Bildschirm“ in einem Wenn-Block.' });
+    SeparatorAction: (a) => make('action', 'comment', { text: '———— ' + str(pick(a, 'separatorLabel', 'm_text', 'text') || '') + ' ————' }),
+    CheckImageOnScreenAction(a, r, ctx) {
+      const SENS = { 0: 95, 1: 90, 2: 85, 3: 80, 4: 75 };
+      const outKeys = (a.dictionaryOutVarKeys && a.dictionaryOutVarKeys.keys) || [];
+      r.check(`Bild auf dem Bildschirm: Vergleichsbild „${str(a.imageDisplayName) || '?'}“ in der Aktion neu auswählen (MacroDroid speichert nur einen Verweis aufs Handy).`);
+      return make('action', 'image_check', {
+        image: '', imageLabel: str(a.imageDisplayName || a.actionLabel),
+        useRegion: !!a.restrictToRegion, percent: !!a.usePercentForRegion,
+        rx: num(a.regionX), ry: num(a.regionY), rw: num(a.regionWidth, 500), rh: num(a.regionHeight, 500),
+        threshold: SENS[num(a.matchSensitivity)] || 85,
+        resultVar: a.booleanResultVarName ? ctx.refFor(a.booleanResultVarName) : '',
+        posVar: a.dictionaryOutVarName ? ctx.refFor(a.dictionaryOutVarName) : '',
+        posKey: outKeys.map((k) => `[${k}]`).join(''),
+      });
     },
     KeepAwakeAction: (a) => make('action', 'wake_lock', { state: a.m_enabled === false ? 'off' : 'on' }),
 
@@ -476,6 +520,16 @@
           return hit || '';
         },
         triggerRef: (guid) => triggerIds[String(guid)] || '',
+        /** Referenz auf eine Variable nach Name: lokal, falls im Makro vorhanden, sonst global. */
+        refFor(name) {
+          const base = MS.vars.parsePath(name).name;
+          return (locals.some((v) => v.name === base) ? 'l:' : 'g:') + base;
+        },
+        /** Magic Text für eine (ggf. verschachtelte) Variable, z. B. {lv=offline skip[Exit btn.][centerX]}. */
+        magicFor(name) {
+          const base = MS.vars.parsePath(name).name;
+          return `{${locals.some((v) => v.name === base) ? 'lv' : 'v'}=${name}}`;
+        },
         addLocal(base, type) {
           let name = base, n = 2;
           while (locals.some((v) => v.name === name)) name = base + n++;

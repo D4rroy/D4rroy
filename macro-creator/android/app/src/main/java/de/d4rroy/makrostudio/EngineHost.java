@@ -37,6 +37,7 @@ final class EngineHost {
     static final int REQ_FILE = 1;
     static final int REQ_SAVE = 2;
     static final int REQ_GEO = 3;
+    static final int REQ_IMAGE = 4;
 
     private static EngineHost instance;
 
@@ -254,6 +255,8 @@ final class EngineHost {
         if (requestCode == REQ_FILE) {
             if (fileCallback != null) fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             fileCallback = null;
+        } else if (requestCode == REQ_IMAGE && bridge != null) {
+            bridge.onImagePicked(resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
         } else if (requestCode == REQ_SAVE && bridge != null) {
             bridge.onSaveResult(resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
         }

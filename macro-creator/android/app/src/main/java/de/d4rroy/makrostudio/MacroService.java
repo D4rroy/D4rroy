@@ -28,6 +28,7 @@ public class MacroService extends Service {
     static volatile boolean running;
     private static MacroService current;
     private static String statusText = "Makros werden überwacht";
+    private static String statusTitle = null;
     private PowerManager.WakeLock wakeLock;
 
     static void start(Context c) {
@@ -39,8 +40,9 @@ public class MacroService extends Service {
     }
 
     /** Text der Daueranzeige, z. B. „3 Makros aktiv“. */
-    static void setStatus(String text) {
+    static void setStatus(String text, String title) {
         statusText = text == null || text.isEmpty() ? "Makros werden überwacht" : text;
+        statusTitle = title == null || title.isEmpty() ? null : title;
         MacroService s = current;
         if (s != null) s.getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, s.buildNotification());
     }
@@ -79,7 +81,7 @@ public class MacroService extends Service {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setColor(0xFF2F7DE1)
-                .setContentTitle(getString(R.string.service_title))
+                .setContentTitle(statusTitle != null ? statusTitle : getString(R.string.service_title))
                 .setContentText(statusText)
                 .setContentIntent(pi)
                 .setOngoing(true)

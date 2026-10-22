@@ -116,7 +116,7 @@
   };
 
   // -------------------------------------------------------------- Variablen
-  const VAR_TYPES = { boolean: 'Boolesch', integer: 'Ganzzahl', decimal: 'Dezimalzahl', string: 'Zeichenkette' };
+  const VAR_TYPES = { boolean: 'Boolesch', integer: 'Ganzzahl', decimal: 'Dezimalzahl', string: 'Zeichenkette', dictionary: 'Wörterbuch' };
   function toNumber(v) {
     if (typeof v === 'number') return v;
     if (typeof v === 'boolean') return v ? 1 : 0;
@@ -136,9 +136,25 @@
         const n = toNumber(v);
         return Number.isFinite(n) ? n : 0;
       }
+      case 'dictionary': {
+        if (v && typeof v === 'object') return v;
+        try {
+          const o = JSON.parse(String(v));
+          return o && typeof o === 'object' ? o : {};
+        } catch (e) { return {}; }
+      }
       default:
         return v === undefined || v === null ? '' : String(v);
     }
+  }
+  /** „offline skip[Std. Buttons][Exit btn.][centerX]“ → { name, keys } */
+  function parsePath(expr) {
+    const s = String(expr || '');
+    const i = s.indexOf('[');
+    if (i < 0) return { name: s, keys: [] };
+    const keys = [];
+    s.slice(i).replace(/\[([^\]]*)\]/g, (m, k) => { keys.push(k); return ''; });
+    return { name: s.slice(0, i), keys };
   }
 
   MS.vars = {
@@ -181,8 +197,44 @@
       return (r.scope === 'l' ? 'lokal ' : '') + r.name;
     },
     format(v) {
-      if (v === undefined) return '';
+      if (v === undefined || v === null) return '';
+      if (typeof v === 'object') return JSON.stringify(v);
       return String(v);
+    },
+    parsePath,
+    /** Wert einer Variable, bei Wörterbüchern auch verschachtelt: lookup('l', 'name[a][b]', ctx). */
+    lookup(scope, expr, ctx) {
+      const { name, keys } = parsePath(expr);
+      const v = this.resolve(scope + ':' + name, ctx);
+      if (!v) return undefined;
+      let cur = v.value;
+      for (const k of keys) {
+        if (cur === null || typeof cur !== 'object') return undefined;
+        cur = Array.isArray(cur) && /^\d+$/.test(k) ? cur[Number(k) - 1] : cur[k];
+      }
+      return cur;
+    },
+    /** Setzt einen Eintrag in einem Wörterbuch (fehlende Ebenen werden angelegt). */
+    setPath(ref, keys, value, ctx) {
+      const v = this.resolve(ref, ctx);
+      if (!v) {
+        MS.log('warn', `Variable „${this.label(ref)}“ nicht gefunden`, ctx && ctx.macroName);
+        return false;
+      }
+      if (!keys.length) return this.set(ref, value, ctx);
+      if (v.type !== 'dictionary') { v.type = 'dictionary'; v.value = {}; }
+      if (!v.value || typeof v.value !== 'object') v.value = {};
+      let cur = v.value;
+      keys.slice(0, -1).forEach((k) => {
+        if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
+        cur = cur[k];
+      });
+      cur[keys[keys.length - 1]] = value;
+      MS.store.save();
+      const r = this.parseRef(ref);
+      MS.bus.emit('var-changed', { scope: r.scope, name: v.name, old: null, value: v.value });
+      MS.bus.emit('vars');
+      return true;
     },
     validName(name) {
       return /^[^{}=:\s][^{}=:]*$/.test(name || '') && name.trim() === name;
@@ -472,6 +524,7 @@
       ['{iteration}', 'Schleifendurchlauf'],
       ['{not_app}', 'Benachrichtigung: App'], ['{not_title}', 'Benachrichtigung: Titel'], ['{not_text}', 'Benachrichtigung: Text'],
       ['{app_name}', 'Geöffnete App'], ['{app_package}', 'Paketname der App'], ['{bt_device}', 'Bluetooth-Gerät'], ['{random=1-100}', 'Zufallszahl (min-max)'], ['{device}', 'Plattform'],
+      ['{fg_app_package}', 'Paket der App im Vordergrund'], ['{fg_activity_class}', 'Activity im Vordergrund'], ['{fg_app_name}', 'Name der App im Vordergrund'],
       ['{newline}', 'Zeilenumbruch'],
     ],
     apply(text, ctx) {
@@ -517,13 +570,16 @@
         return Math.floor(Math.random() * (hi - lo + 1)) + lo;
       }
       case 'v': {
-        const v = MS.vars.resolve('g:' + arg, ctx);
-        return v ? MS.vars.format(v.value) : undefined;
+        const v = MS.vars.lookup('g', arg, ctx);
+        return v === undefined ? undefined : MS.vars.format(v);
       }
       case 'lv': {
-        const v = MS.vars.resolve('l:' + arg, ctx);
-        return v ? MS.vars.format(v.value) : undefined;
+        const v = MS.vars.lookup('l', arg, ctx);
+        return v === undefined ? undefined : MS.vars.format(v);
       }
+      case 'fg_app_package': return MS.native.available ? MS.native.foregroundApp() : '';
+      case 'fg_activity_class': return MS.native.available ? MS.native.foregroundActivity() : '';
+      case 'fg_app_name': return MS.native.available ? MS.native.foregroundAppName() : '';
       default: return undefined;
     }
   }
