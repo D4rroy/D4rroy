@@ -125,6 +125,7 @@
       if (MS.native.startedByBoot()) MS.bus.emit('device-boot');
       // Daueranzeige des Hintergrunddienstes aktuell halten
       const status = () => {
+        if (MS.native.customStatus) return;
         const n = MS.store.state.macros.filter((m) => m.enabled).length;
         MS.native.serviceStatus(MS.store.state.settings.enabled ? `${n} Makro${n === 1 ? '' : 's'} aktiv` : 'Pausiert – alle Makros aus');
       };

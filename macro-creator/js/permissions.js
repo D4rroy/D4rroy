@@ -46,8 +46,8 @@
     },
     {
       key: 'accessibility', title: 'Bedienungshilfe', icon: 'accessibility_new', restricted: true,
-      why: 'Erkennt, welche App gerade geöffnet ist, und führt Systemaktionen aus. Erlaubt außerdem, Apps und Websites aus dem Hintergrund zu öffnen. Makro Studio liest dabei keine Bildschirminhalte.',
-      uses: ['App geöffnet/geschlossen', 'App im Vordergrund (Bedingung)', 'Systemaktion', 'App starten / Website öffnen im Hintergrund'],
+      why: 'Erkennt, welche App gerade geöffnet ist, führt Systemaktionen und UI-Interaktionen (Tippen, Wischen, Text eingeben) aus und erlaubt, Apps aus dem Hintergrund zu öffnen. Bildschirminhalte werden nur gelesen, wenn ein Makro das verlangt, und verlassen das Gerät nie.',
+      uses: ['App geöffnet/geschlossen', 'App im Vordergrund (Bedingung)', 'Systemaktion', 'UI-Interaktion', 'Mit PIN entsperren', 'Text auf dem Bildschirm (Bedingung)', 'App starten / Website öffnen im Hintergrund'],
       steps: [
         'Auf „Einrichten“ tippen – die Seite „Bedienungshilfen“ öffnet sich.',
         '„Installierte Apps“ bzw. „Heruntergeladene Apps“ öffnen → „Makro Studio“ → einschalten → bestätigen.',

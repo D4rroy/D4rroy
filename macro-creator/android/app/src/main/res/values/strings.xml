@@ -7,5 +7,5 @@
     <string name="service_channel_description">Daueranzeige, solange Makro Studio im Hintergrund läuft</string>
     <string name="service_title">Makro Studio läuft</string>
     <string name="accessibility_label">Makro Studio</string>
-    <string name="accessibility_description">Makro Studio nutzt die Bedienungshilfe, um zu erkennen, welche App geöffnet ist (Auslöser „App geöffnet/geschlossen“), um Systemaktionen wie Zurück, Startbildschirm, Bildschirm sperren oder Screenshot auszuführen und um Apps aus dem Hintergrund zu öffnen. Bildschirminhalte werden nicht gelesen und keine Daten verlassen das Gerät.</string>
+    <string name="accessibility_description">Makro Studio nutzt die Bedienungshilfe, um zu erkennen, welche App geöffnet ist, um Systemaktionen (Zurück, Startbildschirm, Sperren, Screenshot) auszuführen, um Apps aus dem Hintergrund zu öffnen und für die Aktion „UI-Interaktion“ (Tippen, Wischen, Text eingeben, PIN entsperren) sowie die Bedingung „Text auf dem Bildschirm“. Bildschirminhalte werden nur gelesen, wenn eines deiner Makros das verlangt, und verlassen das Gerät nie.</string>
 </resources>

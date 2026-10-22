@@ -73,6 +73,13 @@
     launchApp: (pkg) => check(A.launchApp(String(pkg))),
     foregroundApp: () => A.foregroundApp(),
     systemAction: (action) => check(A.systemAction(action)),
+    uiClick: (mode, query, match, longPress, x, y, percent) => check(A.uiClick(mode, String(query), match, !!longPress, Number(x) || 0, Number(y) || 0, !!percent)),
+    uiSwipe: (x1, y1, x2, y2, ms, percent) => check(A.uiSwipe(Number(x1), Number(y1), Number(x2), Number(y2), Math.round(ms), !!percent)),
+    uiSetText: (text) => check(A.uiSetText(String(text))),
+    screenContains: (query, match) => A.screenContains(String(query), match),
+    pinUnlock: (pin, enter) => check(A.pinUnlock(String(pin), !!enter)),
+    isDeviceLocked: () => A.isDeviceLocked(),
+    sendIntent: (o) => check(A.sendIntent(o.target, o.action || '', o.data || '', o.mime || '', o.pkg || '', o.cls || '', JSON.stringify(o.extras || {}))),
 
     // ---- Berechtigungen & Hintergrund
     permissions: () => JSON.parse(A.permissions()),

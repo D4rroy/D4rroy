@@ -600,6 +600,75 @@ class NativeBridge {
         return onMain(() -> host.startActivity(i) ? "" : "App konnte nicht geöffnet werden", "App konnte nicht geöffnet werden");
     }
 
+    // ------------------------------------------------- UI-Interaktion
+    @JavascriptInterface
+    public String uiClick(String mode, String query, String match, boolean longPress, double x, double y, boolean percent) {
+        return onMain(() -> AccessibilityHelper.click(mode, query, match, longPress, (float) x, (float) y, percent), "UI-Interaktion fehlgeschlagen");
+    }
+
+    @JavascriptInterface
+    public String uiSwipe(double x1, double y1, double x2, double y2, int durationMs, boolean percent) {
+        return onMain(() -> AccessibilityHelper.swipe((float) x1, (float) y1, (float) x2, (float) y2, durationMs, percent), "Wischen fehlgeschlagen");
+    }
+
+    @JavascriptInterface
+    public String uiSetText(String text) {
+        return onMain(() -> AccessibilityHelper.setText(text), "Texteingabe fehlgeschlagen");
+    }
+
+    @JavascriptInterface
+    public boolean screenContains(String query, String match) {
+        return onMain(() -> AccessibilityHelper.screenContains(query, match), false);
+    }
+
+    /** Läuft absichtlich auf dem JavaBridge-Thread, weil zwischen den Schritten gewartet wird. */
+    @JavascriptInterface
+    public String pinUnlock(String pin, boolean pressEnter) {
+        return AccessibilityHelper.pinUnlock(pin, pressEnter);
+    }
+
+    @JavascriptInterface
+    public boolean isDeviceLocked() {
+        android.app.KeyguardManager km = app.getSystemService(android.app.KeyguardManager.class);
+        return km.isKeyguardLocked();
+    }
+
+    /** Sendet einen Android-Intent. target: activity | broadcast | service; extras als JSON-Objekt. */
+    @JavascriptInterface
+    public String sendIntent(String target, String action, String data, String mime, String pkg, String cls, String extrasJson) {
+        try {
+            Intent i = new Intent();
+            if (!action.isEmpty()) i.setAction(action);
+            if (!data.isEmpty() && !mime.isEmpty()) i.setDataAndType(Uri.parse(data), mime);
+            else if (!data.isEmpty()) i.setData(Uri.parse(data));
+            else if (!mime.isEmpty()) i.setType(mime);
+            if (!pkg.isEmpty() && !cls.isEmpty()) i.setClassName(pkg, cls.startsWith(".") ? pkg + cls : cls);
+            else if (!pkg.isEmpty()) i.setPackage(pkg);
+            JSONObject extras = new JSONObject(extrasJson.isEmpty() ? "{}" : extrasJson);
+            for (java.util.Iterator<String> it = extras.keys(); it.hasNext();) {
+                String k = it.next();
+                Object v = extras.get(k);
+                if (v instanceof Boolean) i.putExtra(k, (Boolean) v);
+                else if (v instanceof Integer) i.putExtra(k, (Integer) v);
+                else if (v instanceof Long) i.putExtra(k, (Long) v);
+                else if (v instanceof Double) i.putExtra(k, (Double) v);
+                else i.putExtra(k, String.valueOf(v));
+            }
+            switch (target) {
+                case "broadcast":
+                    app.sendBroadcast(i);
+                    return "";
+                case "service":
+                    app.startService(i);
+                    return "";
+                default:
+                    return onMain(() -> host.startActivity(i) ? "" : "Keine App für diesen Intent gefunden", "Intent fehlgeschlagen");
+            }
+        } catch (Exception e) {
+            return "Intent: " + e.getMessage();
+        }
+    }
+
     @JavascriptInterface
     public String foregroundApp() {
         return AccessibilityHelper.currentPackage;

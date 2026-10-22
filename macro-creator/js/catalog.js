@@ -1051,6 +1051,105 @@
     run: (ctx, p) => MS.native.setBrightness(Number(p.percent), p.auto),
   });
 
+  // --- Bedienungshilfe: UI-Interaktion
+  const UI_MODES = [['click', 'Tippen'], ['long_click', 'Lange drücken'], ['swipe', 'Wischen'], ['set_text', 'Text in Eingabefeld eingeben']];
+  const UI_TARGETS = [['text', 'Element mit Text'], ['id', 'Element mit View-ID'], ['coords', 'Bildschirmposition']];
+  const MATCH = [['contains', 'enthält'], ['exact', 'genau gleich'], ['regex', 'RegEx']];
+  A('ui_interaction', {
+    name: 'UI-Interaktion', icon: 'touch_app', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Tippt auf Elemente anderer Apps, wischt oder gibt Text ein – wie in MacroDroid. Benötigt die Bedienungshilfe. Text und View-ID findest du z. B. mit der Android-Entwickleroption „Layoutgrenzen anzeigen“.',
+    params: [
+      { key: 'mode', label: 'Aktion', type: 'select', options: UI_MODES, default: 'click' },
+      { key: 'target', label: 'Ziel', type: 'select', options: UI_TARGETS, default: 'text', showIf: (p) => p.mode === 'click' || p.mode === 'long_click' },
+      { key: 'query', label: 'Text bzw. View-ID', type: 'text', magic: true, default: '', showIf: (p) => (p.mode === 'click' || p.mode === 'long_click') && p.target !== 'coords' },
+      { key: 'match', label: 'Vergleich', type: 'select', options: MATCH, default: 'contains', showIf: (p) => (p.mode === 'click' || p.mode === 'long_click') && p.target === 'text' },
+      { key: 'percent', label: 'Positionen in % der Bildschirmgröße', type: 'bool', default: true, showIf: (p) => p.mode === 'swipe' || p.target === 'coords' },
+      { key: 'x', label: 'X', type: 'number', default: 50, showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
+      { key: 'y', label: 'Y', type: 'number', default: 50, showIf: (p) => p.mode !== 'swipe' && p.mode !== 'set_text' && p.target === 'coords' },
+      { key: 'x1', label: 'Start X', type: 'number', default: 50, showIf: (p) => p.mode === 'swipe' },
+      { key: 'y1', label: 'Start Y', type: 'number', default: 80, showIf: (p) => p.mode === 'swipe' },
+      { key: 'x2', label: 'Ende X', type: 'number', default: 50, showIf: (p) => p.mode === 'swipe' },
+      { key: 'y2', label: 'Ende Y', type: 'number', default: 20, showIf: (p) => p.mode === 'swipe' },
+      { key: 'duration', label: 'Dauer in ms', type: 'number', min: 1, default: 300, showIf: (p) => p.mode === 'swipe' },
+      { key: 'text', label: 'Text', type: 'text', magic: true, default: '', showIf: (p) => p.mode === 'set_text' },
+    ],
+    describe(p) {
+      if (p.mode === 'swipe') return `Wischen ${p.x1},${p.y1} → ${p.x2},${p.y2}${p.percent ? ' %' : ' px'}`;
+      if (p.mode === 'set_text') return `Text eingeben: ${p.text}`;
+      const what = p.target === 'coords' ? `Position ${p.x},${p.y}${p.percent ? ' %' : ' px'}` : p.target === 'id' ? `ID „${p.query}“` : `„${p.query}“`;
+      return `${p.mode === 'long_click' ? 'Lange drücken' : 'Tippen'}: ${what}`;
+    },
+    run(ctx, p) {
+      if (p.mode === 'swipe') return MS.native.uiSwipe(p.x1, p.y1, p.x2, p.y2, Number(p.duration) || 300, p.percent);
+      if (p.mode === 'set_text') return MS.native.uiSetText(M(p.text, ctx));
+      return MS.native.uiClick(p.target, M(p.query, ctx), p.match, p.mode === 'long_click', p.x, p.y, p.percent);
+    },
+  });
+
+  A('pin_unlock', {
+    name: 'Mit PIN entsperren', icon: 'pin', cat: 'apps', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Weckt den Bildschirm, wischt den Sperrbildschirm hoch und tippt die PIN ein. Achtung: Die PIN wird im Makro gespeichert – jeder mit Zugriff auf die App kann sie sehen. Funktioniert nicht mit Muster, Fingerabdruck oder Gesicht.',
+    params: [
+      { key: 'pin', label: 'PIN (nur Ziffern)', type: 'text', default: '', required: true },
+      { key: 'enter', label: 'Danach „OK“ drücken', type: 'bool', default: true },
+    ],
+    describe: (p) => 'PIN ' + '•'.repeat(String(p.pin || '').length),
+    run(ctx, p) {
+      const pin = String(p.pin || '').replace(/\D/g, '');
+      if (!pin) throw new Error('Keine PIN eingetragen');
+      return MS.native.pinUnlock(pin, p.enter);
+    },
+  });
+
+  const INTENT_TARGETS = [['activity', 'Activity (App öffnen)'], ['broadcast', 'Broadcast'], ['service', 'Service']];
+  A('send_intent', {
+    name: 'Intent senden', icon: 'send', cat: 'apps', supported: nativeOnly,
+    help: 'Sendet einen Android-Intent an eine App (z. B. für Tasker-, Home-Assistant- oder App-Schnittstellen). Extras: eine Zeile pro „Name=Wert“; Zahlen und true/false werden erkannt.',
+    params: [
+      { key: 'target', label: 'Ziel', type: 'select', options: INTENT_TARGETS, default: 'activity' },
+      { key: 'action', label: 'Action', type: 'text', magic: true, default: '' },
+      { key: 'data', label: 'Daten (URI)', type: 'text', magic: true, default: '' },
+      { key: 'mime', label: 'MIME-Typ', type: 'text', default: '' },
+      { key: 'pkg', label: 'Paket', type: 'text', default: '' },
+      { key: 'cls', label: 'Klasse', type: 'text', default: '' },
+      { key: 'extras', label: 'Extras (Name=Wert je Zeile)', type: 'textarea', magic: true, default: '' },
+    ],
+    describe: (p) => `${opt(INTENT_TARGETS, p.target).split(' ')[0]}: ${p.action || p.data || p.pkg || '–'}`,
+    run(ctx, p) {
+      const extras = {};
+      M(p.extras, ctx).split('\n').forEach((line) => {
+        const i = line.indexOf('=');
+        if (i <= 0) return;
+        const k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
+        extras[k] = v === 'true' ? true : v === 'false' ? false : /^-?\d+$/.test(v) ? Number(v) : /^-?\d+\.\d+$/.test(v) ? Number(v) : v;
+      });
+      return MS.native.sendIntent({ target: p.target, action: M(p.action, ctx), data: M(p.data, ctx), mime: p.mime, pkg: p.pkg, cls: p.cls, extras });
+    },
+  });
+
+  A('service_text', {
+    name: 'Text der Daueranzeige', icon: 'notification_important', cat: 'notify', supported: nativeOnly,
+    help: 'Ändert den Text der Benachrichtigung „Makro Studio läuft“ (Hintergrunddienst). Leer lassen für den Standardtext.',
+    params: [{ key: 'text', label: 'Text', type: 'text', magic: true, default: '' }],
+    describe: (p) => p.text || 'Standardtext',
+    run(ctx, p) {
+      const t = M(p.text, ctx);
+      MS.native.customStatus = !!t;
+      if (t) MS.native.serviceStatus(t);
+      else MS.bus.emit('store', 'ui');
+    },
+  });
+
+  // --- Aktionsgruppe (nur zur Gliederung, wie in MacroDroid)
+  A('group', {
+    name: 'Aktionsgruppe', icon: 'folder_open', cat: 'flow',
+    help: 'Fasst Aktionen optisch zusammen. Die Aktionen bis „Ende Gruppe“ werden ganz normal ausgeführt.',
+    params: [{ key: 'name', label: 'Name der Gruppe', type: 'text', default: 'Gruppe' }],
+    describe: (p) => p.name,
+    run: () => {},
+  });
+  A('end_group', { name: 'Ende Gruppe', icon: 'folder', cat: 'flow', describe: () => '', run: () => {} });
+
   // --- Makro Studio
   A('run_macro', {
     name: 'Makro ausführen', icon: 'play_circle', cat: 'macro',
@@ -1298,6 +1397,52 @@
     params: [{ key: 'trigger', label: 'Auslöser', type: 'trigger', required: true }],
     describe: (p) => 'Ausgelöst durch ' + (p.triggerLabel || 'gewählten Auslöser'),
     check: (ctx, p) => !!ctx && ctx.triggerId === p.trigger,
+  });
+
+  C('last_run', {
+    name: 'Zuletzt ausgeführt', icon: 'history', cat: 'app',
+    help: 'Prüft, wie lange die letzte Ausführung eines Makros her ist – z. B. „höchstens alle 30 Minuten“.',
+    params: [
+      { key: 'macro', label: 'Makro', type: 'macro', allowThis: true, default: '__this' },
+      { key: 'op', label: 'Letzte Ausführung ist', type: 'select', options: [['more', 'länger her als'], ['less', 'kürzer her als']], default: 'more' },
+      { key: 'value', label: 'Zeit', type: 'number', min: 0, default: 30 },
+      { key: 'unit', label: 'Einheit', type: 'select', options: UNIT_OPTIONS.slice(1), default: 'min' },
+    ],
+    describe: (p) => `${macroName(p.macro)} ${p.op === 'more' ? 'vor mehr als' : 'vor weniger als'} ${p.value} ${unitLabel(p.unit)}`,
+    check(ctx, p) {
+      const m = MS.store.macro(p.macro === '__this' ? ctx && ctx.macroId : p.macro);
+      const last = m && m.lastRun;
+      const age = last ? Date.now() - last : Infinity;
+      const limit = Number(p.value) * (UNIT_MS[p.unit] || 60000);
+      return p.op === 'more' ? age > limit : age < limit;
+    },
+  });
+  C('device_locked', {
+    name: 'Gerät gesperrt', icon: 'lock', cat: 'device', supported: nativeOnly,
+    params: [{ key: 'state', label: 'Gerät ist', type: 'select', options: [['locked', 'Gesperrt'], ['unlocked', 'Entsperrt']], default: 'unlocked' }],
+    describe: (p) => (p.state === 'locked' ? 'Gerät gesperrt' : 'Gerät entsperrt'),
+    check: (ctx, p) => MS.native.available && MS.native.isDeviceLocked() === (p.state === 'locked'),
+  });
+  C('compare_values', {
+    name: 'Werte vergleichen', icon: 'compare_arrows', cat: 'app',
+    help: 'Vergleicht zwei Werte – beide dürfen Magic Text enthalten, z. B. {battery} > {v=grenze}.',
+    params: [
+      { key: 'left', label: 'Wert 1', type: 'text', magic: true, default: '' },
+      { key: 'op', label: 'Vergleich', type: 'select', options: MS.COMPARE_OPS, default: 'eq' },
+      { key: 'right', label: 'Wert 2', type: 'text', magic: true, default: '' },
+    ],
+    describe: (p) => `${p.left} ${opt(MS.COMPARE_OPS, p.op)} ${p.right}`,
+    check: (ctx, p) => MS.compare(M(p.left, ctx), p.op, M(p.right, ctx)),
+  });
+  C('screen_text', {
+    name: 'Text auf dem Bildschirm', icon: 'text_snippet', cat: 'device', supported: nativeOnly, needs: ['accessibility'],
+    help: 'Erfüllt, wenn ein Text gerade auf dem Bildschirm zu sehen ist. Benötigt die Bedienungshilfe.',
+    params: [
+      { key: 'query', label: 'Text', type: 'text', magic: true, default: '', required: true },
+      { key: 'match', label: 'Vergleich', type: 'select', options: MATCH, default: 'contains' },
+    ],
+    describe: (p) => `„${p.query}“ ist sichtbar`,
+    check: (ctx, p) => MS.native.available && MS.native.screenContains(M(p.query, ctx), p.match),
   });
 
   C('macro_state', {

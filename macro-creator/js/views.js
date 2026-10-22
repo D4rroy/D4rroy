@@ -460,6 +460,20 @@
     }
 
     function deleteItem(kindName, item, index, list) {
+      if (kindName === 'action' && (item.type === 'group' || item.type === 'end_group')) {
+        // Passendes Gegenstück der Aktionsgruppe mit entfernen, Inhalt bleibt
+        const dir = item.type === 'group' ? 1 : -1;
+        let depth = 0;
+        for (let j = index + dir; j >= 0 && j < list.length; j += dir) {
+          if (list[j].type === item.type) depth++;
+          else if (list[j].type === (item.type === 'group' ? 'end_group' : 'group')) {
+            if (depth === 0) { [index, j].sort((a, b) => b - a).forEach((k) => list.splice(k, 1)); return; }
+            depth--;
+          }
+        }
+        list.splice(index, 1);
+        return;
+      }
       if (kindName !== 'action' || !['if', 'loop', 'end_if', 'end_loop'].includes(item.type)) { list.splice(index, 1); return; }
       // Bei Blockanfang/-ende den ganzen Rahmen entfernen, Inhalt bleibt erhalten
       const flow = MS.engine.buildFlow(list);
@@ -487,7 +501,7 @@
       item.params = np;
       const list = kindName === 'trigger' ? draft.triggers : kindName === 'action' ? draft.actions : draft.constraints;
       const pos = at === undefined ? list.length : at;
-      const extra = type === 'if' ? 'end_if' : type === 'loop' ? 'end_loop' : null;
+      const extra = { if: 'end_if', loop: 'end_loop', group: 'end_group' }[type] || null;
       list.splice(pos, 0, item);
       if (extra) list.splice(pos + 1, 0, MS.catalog.create('action', extra));
       draw();

@@ -52,7 +52,7 @@
       const top = stack[stack.length - 1];
       let d = stack.length;
       switch (a.type) {
-        case 'if': case 'loop':
+        case 'if': case 'loop': case 'group':
           stack.push({ type: a.type, i, hasElse: false });
           break;
         case 'else_if': case 'else':
@@ -61,8 +61,8 @@
           else if (top.hasElse) warnings.push(`#${i + 1} „${name(a.type)}“ folgt auf „Sonst“.`);
           else if (a.type === 'else') top.hasElse = true;
           break;
-        case 'end_if': case 'end_loop': {
-          const want = a.type === 'end_if' ? 'if' : 'loop';
+        case 'end_if': case 'end_loop': case 'end_group': {
+          const want = { end_if: 'if', end_loop: 'loop', end_group: 'group' }[a.type];
           if (top && top.type === want) { stack.pop(); d--; }
           else warnings.push(`#${i + 1} „${name(a.type)}“ hat keinen passenden Anfang.`);
           break;

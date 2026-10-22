@@ -40,7 +40,7 @@ public class MacroService extends Service {
 
     /** Text der Daueranzeige, z. B. „3 Makros aktiv“. */
     static void setStatus(String text) {
-        statusText = text;
+        statusText = text == null || text.isEmpty() ? "Makros werden überwacht" : text;
         MacroService s = current;
         if (s != null) s.getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, s.buildNotification());
     }
