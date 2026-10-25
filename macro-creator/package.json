@@ -1,0 +1,14 @@
+{
+  "name": "makro-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Makro-Ersteller im Stil von MacroDroid als Web-App",
+  "scripts": {
+    "start": "http-server -p 8080 -c-1",
+    "https": "node tools/https-server.mjs"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "node-forge": "^1.4.0"
+  }
+}
