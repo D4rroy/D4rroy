@@ -476,3 +476,14 @@ select.input { appearance: auto; }
 .image-preview { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .image-preview img { max-width: 120px; max-height: 120px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); }
 .input.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+
+/* ---------------------------------------------------------------- Einklappen */
+.collapse-btn { width: 30px; height: 30px; margin: 0 -6px 0 -8px; border: 0; border-radius: 50%; background: transparent; color: var(--text-2); display: grid; place-items: center; flex: none; }
+.collapse-btn:hover { background: var(--surface-3); }
+.collapse-btn .mi { font-size: 22px; }
+.collapsed-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; border: 0; text-align: left; cursor: pointer;
+  padding: 8px 12px 8px calc(16px + var(--depth, 0) * 22px); background: var(--surface-2); color: var(--text-2); font-size: 13px; font-style: italic;
+}
+.collapsed-row:hover { background: var(--surface-3); }
+.collapsed-row .mi { font-size: 18px; font-style: normal; }

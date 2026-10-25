@@ -256,6 +256,8 @@
       out = [make('action', 'comment', { text: `Aus MacroDroid nicht übernommen: ${label(type)}${a && a.m_comment ? ' – ' + a.m_comment : ''}` })];
     }
     out = Array.isArray(out) ? out : [out];
+    // Eingeklappte Blöcke aus MacroDroid bleiben eingeklappt
+    if (a.childrenCollapsed && out[0] && MS.engine.isOpener(out[0])) out[0].collapsed = true;
     if (a.m_isDisabled) out.forEach((x) => { if (!MS.catalog.actions[x.type].flow) x.enabled = false; });
     // MacroDroid-Bedingungen an einer einzelnen Aktion → Wenn-Block um die Aktion
     const own = (a.m_constraintList || []);

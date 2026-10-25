@@ -77,11 +77,30 @@
     return { depth, warnings };
   }
 
+  const OPENERS = { if: 'end_if', loop: 'end_loop', group: 'end_group' };
+  /** Index des passenden Blockendes (End If / Ende Schleife / Ende Gruppe) – oder das Listenende. */
+  function blockEnd(actions, start) {
+    const want = OPENERS[actions[start] && actions[start].type];
+    if (!want) return start;
+    const stack = [];
+    for (let j = start + 1; j < actions.length; j++) {
+      const t = actions[j].type;
+      if (OPENERS[t]) stack.push(OPENERS[t]);
+      else if (Object.values(OPENERS).includes(t)) {
+        if (!stack.length) return t === want ? j : j - 1;
+        stack.pop();
+      }
+    }
+    return actions.length - 1;
+  }
+
   const engine = (MS.engine = {
     stops: [],
     running: new Map(), // runId → ctx
     buildFlow,
     analyze,
+    blockEnd,
+    isOpener: (a) => !!(a && OPENERS[a.type]),
 
     // ------------------------------------------------------------ Auslöser
     start() {

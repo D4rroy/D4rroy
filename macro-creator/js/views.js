@@ -355,9 +355,11 @@
       ? { id: uid(), name: '', description: '', actions: [], localVars: [] }
       : { id: uid(), name: '', description: '', category: S().categories[0] || 'Allgemein', enabled: true, triggers: [], actions: [], constraints: [], constraintLogic: 'and', localVars: [], created: Date.now() });
     let draft = stored ? clone(stored) : blank();
-    let savedJson = stored ? JSON.stringify(draft) : '';
+    // Einklappen zählt nicht als Änderung
+    const stateJson = (o) => JSON.stringify(o, (k, v) => (k === 'collapsed' ? undefined : v));
+    let savedJson = stored ? stateJson(draft) : '';
     let isNew = !stored;
-    const dirty = () => JSON.stringify(draft) !== savedJson;
+    const dirty = () => stateJson(draft) !== savedJson;
     const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id, triggers: draft.triggers || [] });
     let root, keyHandler;
 
@@ -378,7 +380,7 @@
         MS.store.ensureCategory(copy.category);
       }
       if (i >= 0) list[i] = copy; else list.push(copy);
-      savedJson = JSON.stringify(draft);
+      savedJson = stateJson(draft);
       MS.store.changed(isBlock ? 'blocks' : 'macros');
       if (isNew) {
         isNew = false;
@@ -399,9 +401,40 @@
     }
 
     // ---- Abschnitte
+    /** Block ein-/ausklappen; wird auch im gespeicherten Makro sofort gemerkt. */
+    function toggleCollapse(item, value) {
+      item.collapsed = value === undefined ? !item.collapsed : value;
+      const live = coll().find((x) => x.id === draft.id);
+      const same = live && (live.actions || []).find((a) => a.id === item.id);
+      if (same) { same.collapsed = item.collapsed; MS.store.save(); }
+    }
+
+    /** Sichtbare Einheiten der Aktionsliste: eingeklappte Blöcke zählen als eine Einheit. */
+    function actionUnits(list) {
+      const units = [];
+      for (let i = 0; i < list.length; i++) {
+        const end = list[i].collapsed && MS.engine.isOpener(list[i]) ? MS.engine.blockEnd(list, i) : i;
+        units.push([i, end]);
+        i = end;
+      }
+      return units;
+    }
+
+    function moveUnit(list, index, dir) {
+      const units = actionUnits(list);
+      const k = units.findIndex(([s]) => s === index);
+      const other = units[k + dir];
+      if (k < 0 || !other) return;
+      const [s, e] = units[k];
+      const block = list.splice(s, e - s + 1);
+      const at = dir < 0 ? other[0] : other[1] - block.length + 1;
+      list.splice(at, 0, ...block);
+    }
+
     function itemRow(kindName, item, index, depth, list) {
       const d = MS.catalog.get(kindName, item.type);
       const isFlow = kindName === 'action' && d && d.flow;
+      const canCollapse = kindName === 'action' && MS.engine.isOpener(item);
       const disabled = item.enabled === false;
       const color = { trigger: 'var(--trigger)', action: 'var(--action)', constraint: 'var(--constraint)' }[kindName];
       return h('div', {
@@ -410,7 +443,12 @@
         onclick: () => itemMenu(kindName, item, index, list),
         onkeydown: (e) => { if (e.key === 'Enter') itemMenu(kindName, item, index, list); },
       },
-        h('span', { class: 'item-icon', style: { background: isFlow ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help')),
+        canCollapse ? h('button', {
+          class: 'collapse-btn', type: 'button', 'aria-expanded': String(!item.collapsed),
+          'aria-label': item.collapsed ? 'Block ausklappen' : 'Block einklappen', title: item.collapsed ? 'Ausklappen' : 'Einklappen',
+          onclick: (e) => { e.stopPropagation(); toggleCollapse(item); draw(); },
+        }, icon(item.collapsed ? 'chevron_right' : 'expand_more')) : null,
+        h('span', { class: 'item-icon', style: { background: isFlow || item.type === 'group' ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help')),
         h('div', { class: 'item-text' },
           h('div', { class: 'item-title' }, item.invert ? h('span', { class: 'badge' }, 'NICHT') : null, d ? d.name : 'Unbekannt: ' + item.type, d && !MS.catalog.supported(d) ? h('span', { class: 'badge warn', title: 'Hier nicht verfügbar' }, '!') : null,
             ui.missingPermissions(d).length ? h('span', { class: 'badge perm', title: 'Berechtigung fehlt' }, 'Berechtigung fehlt') : null),
@@ -426,9 +464,10 @@
         { icon: 'play_arrow', label: 'Aktion testen', value: 'test', hidden: kindName !== 'action' || isFlow },
         { icon: 'bolt', label: 'Makro auslösen (Test)', value: 'fire', hidden: kindName !== 'trigger' },
         { icon: 'fact_check', label: 'Jetzt prüfen', value: 'check', hidden: kindName !== 'constraint' },
-        { icon: 'add_box', label: 'Aktion darunter einfügen', value: 'insert', hidden: kindName !== 'action' },
+        { icon: item.collapsed ? 'unfold_more' : 'unfold_less', label: item.collapsed ? 'Block ausklappen' : 'Block einklappen', value: 'collapse', hidden: kindName !== 'action' || !MS.engine.isOpener(item) },
+        { icon: 'add_box', label: 'Aktion darunter einfügen', value: 'insert', hidden: kindName !== 'action' || item.collapsed },
         { icon: 'arrow_upward', label: 'Nach oben', value: 'up', hidden: index === 0 },
-        { icon: 'arrow_downward', label: 'Nach unten', value: 'down', hidden: index === list.length - 1 },
+        { icon: 'arrow_downward', label: 'Nach unten', value: 'down', hidden: (kindName === 'action' && item.collapsed ? MS.engine.blockEnd(list, index) : index) >= list.length - 1 },
         { icon: 'block', label: item.invert ? 'Umkehrung aufheben' : 'Umkehren (NICHT)', value: 'invert', hidden: kindName !== 'constraint' },
         { icon: item.enabled === false ? 'toggle_on' : 'toggle_off', label: item.enabled === false ? 'Aktivieren' : 'Deaktivieren', value: 'toggle', hidden: isFlow },
         { icon: 'content_copy', label: 'Duplizieren', value: 'dup', hidden: isFlow },
@@ -448,8 +487,15 @@
           break;
         }
         case 'insert': await addItem('action', index + 1); return;
-        case 'up': [list[index - 1], list[index]] = [list[index], list[index - 1]]; break;
-        case 'down': [list[index + 1], list[index]] = [list[index], list[index + 1]]; break;
+        case 'up':
+          if (kindName === 'action') moveUnit(list, index, -1);
+          else [list[index - 1], list[index]] = [list[index], list[index - 1]];
+          break;
+        case 'down':
+          if (kindName === 'action') moveUnit(list, index, 1);
+          else [list[index + 1], list[index]] = [list[index], list[index + 1]];
+          break;
+        case 'collapse': toggleCollapse(item); break;
         case 'invert': item.invert = !item.invert; break;
         case 'toggle': item.enabled = item.enabled === false; break;
         case 'dup': list.splice(index + 1, 0, Object.assign(clone(item), { id: uid() })); break;
@@ -518,7 +564,21 @@
         const { depth, warnings } = MS.engine.analyze(items);
         body = [
           warnings.length ? h('div', { class: 'warn-box' }, icon('warning'), h('div', null, warnings.map((w) => h('div', null, w)))) : null,
-          h('div', { class: 'items' }, items.map((it, i) => itemRow(kindName, it, i, depth[i], items))),
+          h('div', { class: 'items' }, (() => {
+            const rows = [];
+            for (const [s, e] of actionUnits(items)) {
+              rows.push(itemRow(kindName, items[s], s, depth[s], items));
+              if (e > s) {
+                const n = items.slice(s + 1, e).filter((a) => !MS.catalog.actions[a.type] || !['end_if', 'end_loop', 'end_group'].includes(a.type)).length;
+                const opener = items[s];
+                rows.push(h('button', {
+                  class: 'collapsed-row', type: 'button', style: { '--depth': (depth[s] || 0) + 1 },
+                  onclick: () => { toggleCollapse(opener, false); draw(); },
+                }, icon('unfold_more'), `${n} Aktion${n === 1 ? '' : 'en'} eingeklappt – antippen zum Ausklappen`));
+              }
+            }
+            return rows;
+          })()),
         ];
       } else {
         body = h('div', { class: 'items' }, items.map((it, i) => itemRow(kindName, it, i, 0, items)));
@@ -611,12 +671,18 @@
     const menu = async () => {
       const r = await ui.sheet(draft.name || 'Unbenannt', [
         { icon: 'play_arrow', label: 'Aktionen testen', value: 'test' },
+        { icon: 'unfold_less', label: 'Alle Blöcke einklappen', value: 'collapse_all', hidden: !draft.actions.some((a) => MS.engine.isOpener(a)) },
+        { icon: 'unfold_more', label: 'Alle Blöcke ausklappen', value: 'expand_all', hidden: !draft.actions.some((a) => a.collapsed) },
         { icon: 'fact_check', label: 'Bedingungen prüfen', value: 'check', hidden: isBlock },
         { icon: 'content_copy', label: 'Duplizieren', value: 'dup', hidden: isNew || isBlock },
         { icon: 'download', label: 'Exportieren', value: 'export', hidden: isBlock },
         { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
       ]);
       if (r === 'test') testRun();
+      if (r === 'collapse_all' || r === 'expand_all') {
+        draft.actions.forEach((a) => { if (MS.engine.isOpener(a)) toggleCollapse(a, r === 'collapse_all'); });
+        draw();
+      }
       if (r === 'check') {
         const ok = MS.engine.checkAll(draft.constraints, draft.constraintLogic, MS.engine.context(draft));
         ui.toast(ok ? 'Alle Bedingungen erfüllt' : 'Bedingungen nicht erfüllt', 2000, ok ? 'check_circle' : 'cancel');
@@ -624,18 +690,18 @@
       if (r === 'dup') {
         if (dirty() && !save()) return;
         const c = duplicateMacro(MS.store.macro(draft.id));
-        savedJson = JSON.stringify(draft);
+        savedJson = stateJson(draft);
         go('#/macro/' + c.id);
       }
       if (r === 'export') exportMacros([clone(draft)], fileSafe(draft.name) + '.json');
       if (r === 'del') {
-        if (isNew) { savedJson = JSON.stringify(draft); go(isBlock ? '#/blocks' : '#/macros'); return; }
+        if (isNew) { savedJson = stateJson(draft); go(isBlock ? '#/blocks' : '#/macros'); return; }
         if (isBlock) {
           if (!(await ui.confirm('Action Block löschen?', `„${draft.name}“ wird gelöscht. Makros, die ihn verwenden, melden dann einen Fehler.`, 'Löschen', 'Abbrechen', true))) return;
           S().blocks = S().blocks.filter((b) => b.id !== draft.id);
           MS.store.changed('blocks');
         } else if (!(await deleteMacro(MS.store.macro(draft.id) || draft))) return;
-        savedJson = JSON.stringify(draft);
+        savedJson = stateJson(draft);
         go(isBlock ? '#/blocks' : '#/macros');
       }
     };
