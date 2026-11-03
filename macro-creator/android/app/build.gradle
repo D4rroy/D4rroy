@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Die Web-App (index.html, css, js, icons) wird beim Bauen in die APK kopiert.
+def webAppDir = rootProject.projectDir.parentFile
+def webAssetsDir = layout.buildDirectory.dir('generated/webapp').get().asFile
+
+tasks.register('copyWebApp', Sync) {
+    from(webAppDir) {
+        include 'index.html', 'manifest.webmanifest', 'css/**', 'js/**', 'icons/**', 'fonts/**'
+    }
+    into webAssetsDir
+}
+
+android {
+    namespace 'de.d4rroy.makrostudio'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'de.d4rroy.makrostudio'
+        minSdk 24
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName '1.0.' + (System.getenv('VERSION_CODE') ?: '0')
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        // Fester Schlüssel im Repo, damit neue APKs ohne Deinstallation über die alte installiert
+        // werden können (und die gespeicherten Makros erhalten bleiben). Für den Play Store
+        // einen eigenen, geheimen Schlüssel verwenden.
+        shared {
+            storeFile file('makrostudio.keystore')
+            storePassword 'makrostudio'
+            keyAlias 'makrostudio'
+            keyPassword 'makrostudio'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shared
+        }
+    }
+
+    sourceSets {
+        main.assets.srcDir webAssetsDir
+    }
+
+    lint {
+        checkReleaseBuilds false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.named('preBuild') { dependsOn 'copyWebApp' }
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.webkit:webkit:1.11.0'
+
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}
