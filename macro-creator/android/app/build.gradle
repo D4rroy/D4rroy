@@ -65,6 +65,11 @@ android {
 tasks.named('preBuild') { dependsOn 'copyWebApp' }
 
 dependencies {
+    // ML Kit bringt alte kotlin-stdlib-jdk7/-jdk8 mit; auf die Version von androidx.core angleichen
+    constraints {
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22') { because 'doppelte Klassen mit kotlin-stdlib 1.8' }
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22') { because 'doppelte Klassen mit kotlin-stdlib 1.8' }
+    }
     implementation 'androidx.core:core:1.13.1'
     implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'androidx.documentfile:documentfile:1.0.1'
