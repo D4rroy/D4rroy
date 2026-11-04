@@ -235,6 +235,7 @@ final class EngineHost {
     void shutdownIfUnused() {
         if (activity != null || MacroService.running || web == null) return;
         main.removeCallbacks(ticker);
+        WakeReceiver.schedule(app, 0); // ohne Engine keine Wecker mehr
         if (batteryReceiver != null) app.unregisterReceiver(batteryReceiver);
         if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
         batteryReceiver = null;

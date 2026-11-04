@@ -50,8 +50,13 @@ public class WakeReceiver extends BroadcastReceiver {
         if (host != null) {
             host.eval("window.MS&&MS.engine&&MS.engine.onWake&&MS.engine.onWake()");
         } else if (Prefs.get(context).getBoolean(Prefs.SERVICE, false)) {
-            // Engine läuft nicht mehr (z. B. vom System beendet) → Dienst neu starten
-            ContextCompat.startForegroundService(context, new Intent(context, MacroService.class));
+            // Engine läuft nicht mehr (z. B. vom System beendet) → Dienst neu starten.
+            // Android erlaubt das aus dem Hintergrund nur bei exakten Weckern; sonst nicht abstürzen.
+            try {
+                ContextCompat.startForegroundService(context, new Intent(context, MacroService.class));
+            } catch (RuntimeException e) {
+                android.util.Log.w("MakroStudio", "Dienst konnte nicht neu gestartet werden: " + e.getMessage());
+            }
         }
     }
 }

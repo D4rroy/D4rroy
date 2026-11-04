@@ -18,6 +18,10 @@ public class BootReceiver extends BroadcastReceiver {
         SharedPreferences p = Prefs.get(context);
         if (!p.getBoolean(Prefs.SERVICE, false) || !p.getBoolean(Prefs.AUTOSTART, false)) return;
         Intent start = new Intent(context, MacroService.class).putExtra(MacroService.EXTRA_BOOT, boot);
-        ContextCompat.startForegroundService(context, start);
+        try {
+            ContextCompat.startForegroundService(context, start);
+        } catch (RuntimeException e) {
+            android.util.Log.w("MakroStudio", "Dienst konnte nach dem Start nicht gestartet werden: " + e.getMessage());
+        }
     }
 }
