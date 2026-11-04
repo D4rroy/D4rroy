@@ -143,6 +143,14 @@ final class EngineHost {
             }
 
             @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                // Renderer abgestürzt oder vom System beendet: Engine neu starten statt die ganze App zu beenden
+                android.util.Log.w("MakroStudio", "WebView-Renderer beendet (crash=" + detail.didCrash() + "), Engine wird neu gestartet");
+                restartEngine();
+                return true;
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (HOST.equals(uri.getHost())) return false;
@@ -185,6 +193,24 @@ final class EngineHost {
         web.loadUrl(START_URL);
         registerBatteryReceiver();
         main.postDelayed(ticker, 1000);
+    }
+
+    /** Ersetzt eine nicht mehr nutzbare WebView durch eine neue (gleicher Zustand aus dem Speicher). */
+    private void restartEngine() {
+        main.removeCallbacks(ticker);
+        WebView old = web;
+        if (old != null && old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+        if (batteryReceiver != null) app.unregisterReceiver(batteryReceiver);
+        if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
+        batteryReceiver = null;
+        bluetoothReceiver = null;
+        if (bridge != null) bridge.shutdown();
+        web = null;
+        bridge = null;
+        if (old != null) old.destroy();
+        Activity a = activity;
+        if (a != null) attach(a);
+        else if (MacroService.running) ensure();
     }
 
     boolean hasLocationPermission() {
