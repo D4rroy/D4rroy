@@ -29,7 +29,9 @@ public class DeviceEventsTest {
     private static final String TAG = "DeviceEventsTest";
 
     private static String shell(String cmd) throws Exception {
-        ParcelFileDescriptor pfd = InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(cmd);
+        ParcelFileDescriptor pfd = InstrumentationRegistry.getInstrumentation()
+                // Sonst schaltet die Test-Verbindung alle anderen Bedienungshilfen (auch die der App) stumm
+                .getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).executeShellCommand(cmd);
         StringBuilder sb = new StringBuilder();
         try (FileInputStream in = new FileInputStream(pfd.getFileDescriptor())) {
             byte[] buf = new byte[4096];
@@ -157,7 +159,7 @@ public class DeviceEventsTest {
             // --- Lautstärketaste über die Bedienungshilfe
             shell("settings put secure enabled_accessibility_services " + pkg + "/" + pkg + ".AccessibilityHelper");
             shell("settings put secure accessibility_enabled 1");
-            until = SystemClock.uptimeMillis() + 15000;
+            until = SystemClock.uptimeMillis() + 30000;
             while (AccessibilityHelper.instance == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(300);
             assertTrue("Bedienungshilfe wurde nicht verbunden", AccessibilityHelper.instance != null);
             String volBefore = shell("cmd media_session volume --stream 3 --get");
