@@ -864,7 +864,7 @@
     const FILTERS = [['all', 'Alle'], ['info', 'Makros'], ['action', 'Aktionen'], ['user', 'Benutzer'], ['warn', 'Warnungen'], ['error', 'Fehler']];
     return {
       title: 'Systemprotokoll', nav: 'log',
-      actions: [{ icon: 'delete_sweep', label: 'Protokoll leeren', onClick: async () => {
+      actions: [{ icon: 'share', label: 'Protokoll teilen', onClick: shareLog }, { icon: 'delete_sweep', label: 'Protokoll leeren', onClick: async () => {
         if (await ui.confirm('Protokoll leeren?', 'Alle Einträge werden gelöscht.', 'Leeren', 'Abbrechen', true)) {
           S().log = [];
           MS.store.save();
@@ -887,6 +887,25 @@
       destroy() { off && off(); },
     };
   };
+
+  /** Protokoll als Text teilen (Android) bzw. herunterladen (Browser) – z. B. zur Fehlersuche. */
+  function shareLog() {
+    const st = MS.native.available ? MS.native.permissions() : null;
+    const head = [
+      'Makro Studio – Systemprotokoll vom ' + fmtDateTime(new Date()),
+      st ? `Android ${st.sdk}, ${st.manufacturer}; Dienst: ${st.service ? 'an' : 'aus'}; CPU wach: ${st.cpu_wake ? 'an' : 'aus'}; ` +
+        MS.PERMISSIONS.map((p) => `${p.key}=${st[p.key] === undefined ? '-' : st[p.key] ? 'ja' : 'nein'}`).join(', ') : 'Browser',
+      '',
+    ];
+    const lines = S().log.slice(0, 1000).reverse().map((e) => `${fmtDateTime(new Date(e.t))} [${MS.LOG_LEVELS[e.level] || e.level}] ${e.source ? e.source + ': ' : ''}${e.msg}`);
+    const text = head.concat(lines).join('\n');
+    if (MS.native.available) { MS.native.share('Makro Studio Protokoll', text); return; }
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = h('a', { href: URL.createObjectURL(blob), download: 'makrostudio-protokoll.txt' });
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
 
   // ========================================================= EINSTELLUNGEN
   views.settings = () => {

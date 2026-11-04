@@ -15,6 +15,9 @@
   const triggers = {}, actions = {}, constraints = {};
   const def = (map, kind) => (type, d) => (map[type] = Object.assign({ type, kind, params: [] }, d));
   const T = def(triggers, 'trigger'), A = def(actions, 'action'), C = def(constraints, 'constraint');
+  /** Nächsten Fälligkeitszeitpunkt eines Auslösers melden – die Engine plant daraus den Android-Wecker. */
+  const due = (inst, at) => MS.engine && MS.engine.setDue(inst.id, at ? +at : 0);
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
   // ------------------------------------------------------------ Optionen
   const DAY_OPTIONS = [[1, 'Mo'], [2, 'Di'], [3, 'Mi'], [4, 'Do'], [5, 'Fr'], [6, 'Sa'], [0, 'So']];
@@ -79,10 +82,19 @@
       { key: 'days', label: 'Wochentage', type: 'chips', options: DAY_OPTIONS, default: [0, 1, 2, 3, 4, 5, 6] },
     ],
     describe: (p) => `${p.time} · ${daysText(p.days)}`,
-    start(p, fire) {
+    start(p, fire, inst) {
+      const next = (from) => {
+        for (let d = 0; d <= 7; d++) {
+          const t = atTime(addDays(from, d), p.time);
+          if (t > from && (p.days || []).includes(t.getDay())) return t;
+        }
+        return null;
+      };
+      let at = next(new Date());
+      due(inst, at);
       return MS.bus.on('tick', ({ prev, now }) => {
-        if (!(p.days || []).includes(now.getDay())) return;
-        if (crossed(prev, atTime(now, p.time), now)) fire({ info: p.time });
+        if ((p.days || []).includes(now.getDay()) && crossed(prev, atTime(now, p.time), now)) fire({ info: p.time });
+        if (!at || now >= at) { at = next(now); due(inst, at); }
       });
     },
   });
@@ -95,11 +107,19 @@
       { key: 'unit', label: 'Einheit', type: 'select', options: UNIT_OPTIONS.slice(1), default: 'min' },
     ],
     describe: (p) => `Alle ${p.value} ${unitLabel(p.unit)}`,
-    start(p, fire) {
+    start(p, fire, inst) {
+      // Nach festen Fälligkeitszeiten statt setInterval: läuft auch nach dem Tiefschlaf des Geräts weiter
       const ms = Math.max(1000, Number(p.value) * (UNIT_MS[p.unit] || 1000));
       let n = 0;
-      const id = setInterval(() => fire({ info: `Durchlauf ${++n}` }), ms);
-      return () => clearInterval(id);
+      let at = Date.now() + ms;
+      due(inst, at);
+      return MS.bus.on('tick', ({ now }) => {
+        if (+now < at) return;
+        fire({ info: `Durchlauf ${++n}` });
+        // Verpasste Durchläufe (z. B. während das Gerät schlief) nicht nachholen
+        at += Math.ceil((+now - at + 1) / ms) * ms;
+        due(inst, at);
+      });
     },
   });
 
@@ -115,18 +135,26 @@
       const o = Number(p.offset) || 0;
       return o ? `${ev} ${o > 0 ? '+' : '−'}${Math.abs(o)} min` : ev;
     },
-    start(p, fire) {
+    start(p, fire, inst) {
       let key = '', target = null;
+      const at = (day, loc) => {
+        const t = MS.geo.sunTimes(day, loc.lat, loc.lon)[p.event];
+        return isNaN(t) ? null : new Date(t.getTime() + (Number(p.offset) || 0) * 60000);
+      };
       return MS.bus.on('tick', ({ prev, now }) => {
         const loc = MS.geo.home();
         if (!loc) return;
         const k = now.toDateString() + loc.lat.toFixed(2) + loc.lon.toFixed(2);
         if (k !== key) {
           key = k;
-          const t = MS.geo.sunTimes(now, loc.lat, loc.lon)[p.event];
-          target = isNaN(t) ? null : new Date(t.getTime() + (Number(p.offset) || 0) * 60000);
+          target = at(now, loc);
+          const tomorrow = at(addDays(now, 1), loc);
+          due(inst, target && target > now ? target : tomorrow);
         }
-        if (target && crossed(prev, target, now)) fire({ info: fmtTime(target) });
+        if (target && crossed(prev, target, now)) {
+          fire({ info: fmtTime(target) });
+          due(inst, at(addDays(now, 1), loc));
+        }
       });
     },
   });
@@ -139,11 +167,22 @@
       { key: 'time', label: 'Uhrzeit', type: 'time', default: '09:00' },
     ],
     describe: (p) => `${p.day === 'last' ? 'Letzter Tag' : p.day + '.'} des Monats, ${p.time}`,
-    start(p, fire) {
+    start(p, fire, inst) {
+      const dayOf = (d) => (p.day === 'last' ? new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() : Number(p.day));
+      const next = (from) => {
+        for (let d = 0; d <= 62; d++) {
+          const x = addDays(from, d);
+          const t = atTime(x, p.time);
+          if (t > from && x.getDate() === dayOf(x)) return t;
+        }
+        return null;
+      };
+      let at = next(new Date());
+      due(inst, at);
       return MS.bus.on('tick', ({ prev, now }) => {
-        const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const day = p.day === 'last' ? last : Number(p.day);
+        const day = dayOf(now);
         if (now.getDate() === day && crossed(prev, atTime(now, p.time), now)) fire({ info: `${day}. ${p.time}` });
+        if (!at || now >= at) { at = next(now); due(inst, at); }
       });
     },
   });

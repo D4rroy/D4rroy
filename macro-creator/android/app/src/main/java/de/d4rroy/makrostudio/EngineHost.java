@@ -54,6 +54,19 @@ final class EngineHost {
     private String geoOrigin;
     volatile boolean startedByBoot;
 
+    /**
+     * Sekundentakt für die Engine. Er läuft über Android statt über JavaScript-Timer,
+     * weil die WebView ihre Timer im Hintergrund stark drosselt.
+     */
+    private final Runnable ticker = new Runnable() {
+        @Override
+        public void run() {
+            if (web == null) return;
+            web.evaluateJavascript("window.MS&&MS.device&&MS.device._tick&&MS.device._tick()", null);
+            main.postDelayed(this, 1000);
+        }
+    };
+
     private EngineHost(Context app) {
         this.app = app;
     }
@@ -171,6 +184,7 @@ final class EngineHost {
 
         web.loadUrl(START_URL);
         registerBatteryReceiver();
+        main.postDelayed(ticker, 1000);
     }
 
     boolean hasLocationPermission() {
@@ -220,6 +234,7 @@ final class EngineHost {
     /** Beendet die Engine (nur wenn weder App noch Hintergrunddienst sie brauchen). */
     void shutdownIfUnused() {
         if (activity != null || MacroService.running || web == null) return;
+        main.removeCallbacks(ticker);
         if (batteryReceiver != null) app.unregisterReceiver(batteryReceiver);
         if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
         batteryReceiver = null;

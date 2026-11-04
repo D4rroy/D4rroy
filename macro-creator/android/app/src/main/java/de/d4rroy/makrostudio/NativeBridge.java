@@ -74,6 +74,7 @@ class NativeBridge {
     private final Map<Integer, String[]> permissionRequests = new HashMap<>();
     private int nextRequest = 100;
     private int nextNotification = 1;
+    private android.os.PowerManager.WakeLock busyLock;
 
     NativeBridge(EngineHost host) {
         this.host = host;
@@ -202,6 +203,7 @@ class NativeBridge {
                     .put("write_settings", Settings.System.canWrite(app))
                     .put("overlay", Settings.canDrawOverlays(app))
                     .put("bluetooth", Build.VERSION.SDK_INT < 31 || granted(Manifest.permission.BLUETOOTH_CONNECT))
+                    .put("exact_alarm", WakeReceiver.canExact(app))
                     .put("service", MacroService.running)
                     .put(Prefs.AUTOSTART, Prefs.get(app).getBoolean(Prefs.AUTOSTART, false))
                     .put(Prefs.CPU_WAKE, Prefs.get(app).getBoolean(Prefs.CPU_WAKE, false))
@@ -238,6 +240,9 @@ class NativeBridge {
                 break;
             case "battery":
                 settings = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri);
+                break;
+            case "exact_alarm":
+                if (Build.VERSION.SDK_INT >= 31) settings = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, pkgUri);
                 break;
             case "bluetooth":
                 if (Build.VERSION.SDK_INT >= 31) runtime = new String[] { Manifest.permission.BLUETOOTH_CONNECT };
@@ -802,6 +807,36 @@ class NativeBridge {
         return onMain(() -> AccessibilityHelper.perform(action), "Systemaktion fehlgeschlagen");
     }
 
+    // ------------------------------------------------- Zeitsteuerung
+    /** Wartet ms Millisekunden über Android (nicht gedrosselt wie JavaScript-Timer). */
+    @JavascriptInterface
+    public void delay(double ms, String callbackId) {
+        host.main.postDelayed(() -> resolve(callbackId, "true"), Math.max(0, Math.round(ms)));
+    }
+
+    /** Hält die CPU wach, solange ein Makro läuft (höchstens 30 Minuten am Stück). */
+    @JavascriptInterface
+    public void setBusy(boolean busy) {
+        host.main.post(() -> {
+            if (busy) {
+                if (busyLock == null) {
+                    busyLock = app.getSystemService(android.os.PowerManager.class)
+                            .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "MakroStudio:busy");
+                    busyLock.setReferenceCounted(false);
+                }
+                busyLock.acquire(30 * 60_000L);
+            } else if (busyLock != null && busyLock.isHeld()) {
+                busyLock.release();
+            }
+        });
+    }
+
+    /** Nächsten Weckzeitpunkt planen (Unix-Zeit in ms, 0 = keiner). */
+    @JavascriptInterface
+    public void scheduleWake(double at) {
+        WakeReceiver.schedule(app, (long) at);
+    }
+
     // ------------------------------------------------- Teilen & Öffnen
     @JavascriptInterface
     public void copy(String text) {
@@ -875,5 +910,6 @@ class NativeBridge {
 
     void shutdown() {
         if (tts != null) tts.shutdown();
+        if (busyLock != null && busyLock.isHeld()) busyLock.release();
     }
 }

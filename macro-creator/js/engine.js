@@ -126,6 +126,33 @@
     stopTriggers() {
       this.stops.forEach((fn) => { try { fn(); } catch (e) { console.error(e); } });
       this.stops = [];
+      this.dues.clear();
+      this.planWake();
+    },
+
+    // ----------------------------------------------- Wecker (Android-App)
+    dues: new Map(), // Auslöser-ID → nächster fälliger Zeitpunkt (ms)
+    setDue(id, at) {
+      if (at) this.dues.set(id, at); else this.dues.delete(id);
+      this.planWake();
+    },
+    /** Plant den Android-Wecker auf den frühesten fälligen Auslöser (auch im Tiefschlaf). */
+    planWake() {
+      // Direkt (ohne Timer) planen: Timer könnten im Hintergrund zu spät laufen, und das Gerät schläft vorher ein
+      if (!MS.native.available) return;
+      const now = Date.now();
+      let at = 0;
+      for (const t of this.dues.values()) if (t > now && (!at || t < at)) at = t;
+      if (at !== this._plannedWake) {
+        this._plannedWake = at;
+        MS.native.scheduleWake(at);
+      }
+    },
+    /** Vom Android-Wecker aufgerufen: sofort prüfen, welche Auslöser fällig sind. */
+    onWake() {
+      this._plannedWake = null;
+      MS.device._tick();
+      this.planWake();
     },
     restart() {
       clearTimeout(this._restartTimer);
@@ -321,6 +348,11 @@
       for (const ctx of this.running.values()) if (ctx.macroId === macroId && ctx.runId !== exceptRunId) return true;
       return false;
     },
+  });
+
+  // Während Makros laufen, die CPU wach halten (Android-App)
+  MS.bus.on('running', () => {
+    if (MS.native.available) MS.native.setBusy(engine.running.size > 0);
   });
 
   MS.bus.on('store', (what) => {

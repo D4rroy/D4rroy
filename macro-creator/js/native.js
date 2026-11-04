@@ -35,6 +35,11 @@
       MS.bus.emit('app-changed', { pkg, label, prev });
     },
 
+    // ---- Zeitsteuerung
+    delay: (ms) => call('delay', Math.max(0, Number(ms) || 0)),
+    setBusy: (busy) => A.setBusy(!!busy),
+    scheduleWake: (at) => A.scheduleWake(Number(at) || 0),
+
     // ---- Gerät
     battery: () => JSON.parse(A.battery()),
     notify: (title, text) => A.showNotification(String(title), String(text)),

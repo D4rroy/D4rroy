@@ -8,7 +8,8 @@
   const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
   const clone = (o) => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
   const pad = (n, l = 2) => String(n).padStart(l, '0');
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // In der Android-App über Android warten – JavaScript-Timer werden dort im Hintergrund gedrosselt
+  const sleep = (ms) => (MS.native && MS.native.available ? MS.native.delay(ms) : new Promise((r) => setTimeout(r, ms)));
   const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
   const WEEKDAYS_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
   const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -408,13 +409,9 @@
     geoId: null,
 
     async init() {
-      // Uhr – ein Takt pro Sekunde, prev/now erlauben das Nachholen verpasster Zeitpunkte
-      let prev = new Date();
-      setInterval(() => {
-        const now = new Date();
-        MS.bus.emit('tick', { prev, now });
-        prev = now;
-      }, 1000);
+      // Uhr – ein Takt pro Sekunde, prev/now erlauben das Nachholen verpasster Zeitpunkte.
+      // In der Android-App kommt der Takt von Android (MS.device._tick), sonst vom Browser.
+      if (!MS.native.available) setInterval(() => this._tick(), 1000);
 
       window.addEventListener('online', () => this.setOnline(true));
       window.addEventListener('offline', () => this.setOnline(false));
@@ -447,6 +444,14 @@
       if (prev && prev.level === next.level && prev.charging === next.charging) return;
       this.battery = next;
       MS.bus.emit('battery', { ...next, prevLevel: prev && prev.level, prevCharging: prev && prev.charging });
+    },
+    _prevTick: new Date(),
+    _tick() {
+      const now = new Date();
+      const prev = this._prevTick;
+      if (now - prev < 200) return; // doppelte Takte (Wecker + Sekundentakt) zusammenfassen
+      this._prevTick = now;
+      MS.bus.emit('tick', { prev, now });
     },
     setOnline(on) {
       if (this.online === on) return;

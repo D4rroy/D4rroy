@@ -24,6 +24,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Spezielle Berechtigungen, die der Nutzer in den Android-Einstellungen erteilt -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
@@ -77,6 +78,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Ausführen vom Nutzer erstellter Automatisierungs-Makros" />
         </service>
+
+        <receiver
+            android:name=".WakeReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".BootReceiver"

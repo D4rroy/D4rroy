@@ -35,6 +35,15 @@
       ],
     },
     {
+      key: 'exact_alarm', title: 'Wecker & Erinnerungen', icon: 'alarm', minSdk: 31,
+      why: 'Damit zeitgesteuerte Makros (Uhrzeit, Intervall, Sonnenzeiten) auch bei ausgeschaltetem Bildschirm pünktlich starten. Ohne diese Berechtigung weckt Android die App nur ungefähr – im Tiefschlaf teils erst viele Minuten später.',
+      uses: ['Tageszeit', 'Regelmäßiges Intervall', 'Tag im Monat', 'Sonnenaufgang/-untergang'],
+      steps: [
+        'Auf „Einrichten“ tippen und „Wecker und Erinnerungen erlauben“ einschalten.',
+        `Manuell: ${APP} → (Erweitert →) „Wecker und Erinnerungen“ bzw. Einstellungen → Apps → Spezieller App-Zugriff → Wecker und Erinnerungen → Makro Studio.`,
+      ],
+    },
+    {
       key: 'battery', title: 'Akku-Optimierung ausschalten', icon: 'battery_saver',
       why: 'Sonst pausiert oder beendet Android den Hintergrunddienst im Energiesparmodus, und zeitgesteuerte Makros setzen aus.',
       uses: ['Hintergrunddienst', 'Tageszeit', 'Regelmäßiges Intervall', 'alle Auslöser im Hintergrund'],
@@ -115,7 +124,7 @@
       'Makro Studio öffnen → Einstellungen → „Hintergrunddienst“ einschalten. In der Statusleiste erscheint „Makro Studio läuft“.',
       '„Beim Gerätestart starten“ einschalten, damit der Dienst nach einem Neustart automatisch läuft (Auslöser „Gerät gestartet“).',
       'Optional „CPU wach halten“: Makros laufen auch bei ausgeschaltetem Bildschirm pünktlich, das kostet aber etwas mehr Akku.',
-      'Unter „Berechtigungen“ die Akku-Optimierung ausschalten.',
+      'Unter „Berechtigungen“ die Akku-Optimierung ausschalten und „Wecker & Erinnerungen“ erlauben – sonst starten zeitgesteuerte Makros bei ausgeschaltetem Display zu spät oder gar nicht.',
       'Die Daueranzeige kann man in den Benachrichtigungseinstellungen unter „Hintergrunddienst“ stumm schalten, aber nicht entfernen – Android verlangt sie für Hintergrunddienste.',
     ],
     restricted: [
