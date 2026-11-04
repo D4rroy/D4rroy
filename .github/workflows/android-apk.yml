@@ -44,7 +44,10 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: macro-creator/android
-          script: ./gradlew --no-daemon connectedDebugAndroidTest && adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I ImageMatcherTest:I ScreenOffTest:I
+          # Bei Fehlern Testmeldungen und Absturzursachen ins Log schreiben
+          script: |
+            ./gradlew --no-daemon connectedDebugAndroidTest || (adb logcat -d -s AndroidRuntime:E TestRunner:I MakroStudio:W chromium:I ; for f in app/build/outputs/androidTest-results/connected/debug/*.xml; do grep -A25 "<failure" "$f"; done; exit 1)
+            adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I ImageMatcherTest:I ScreenOffTest:I
 
       - name: Testbericht hochladen
         if: always()
