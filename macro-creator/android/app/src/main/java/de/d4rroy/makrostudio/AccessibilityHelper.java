@@ -297,6 +297,43 @@ public class AccessibilityHelper extends AccessibilityService {
         return "";
     }
 
+    /** Lautstärketasten melden; optional verschlucken (dann ändert sich die Lautstärke nicht). */
+    @Override
+    protected boolean onKeyEvent(android.view.KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code != android.view.KeyEvent.KEYCODE_VOLUME_UP && code != android.view.KeyEvent.KEYCODE_VOLUME_DOWN) return false;
+        EngineHost host = EngineHost.peek();
+        if (host == null) return false;
+        boolean watched = Prefs.get(this).getBoolean(Prefs.VOLUME_WATCH, false);
+        if (!watched) return false;
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            host.event("volume_key", SystemMonitor.obj("key", code == android.view.KeyEvent.KEYCODE_VOLUME_UP ? "up" : "down"));
+        }
+        return Prefs.get(this).getBoolean(Prefs.VOLUME_CONSUME, false);
+    }
+
+    /** Alle sichtbaren Texte des Bildschirms (eine Zeile pro Element). */
+    static String screenText() {
+        AccessibilityHelper s = instance;
+        if (s == null) return null;
+        StringBuilder out = new StringBuilder();
+        for (AccessibilityNodeInfo root : s.roots()) {
+            List<AccessibilityNodeInfo> stack = new ArrayList<>();
+            stack.add(root);
+            while (!stack.isEmpty()) {
+                AccessibilityNodeInfo n = stack.remove(stack.size() - 1);
+                if (n == null) continue;
+                if (n.isVisibleToUser()) {
+                    CharSequence t = n.getText();
+                    if (t == null || t.length() == 0) t = n.getContentDescription();
+                    if (t != null && t.toString().trim().length() > 0) out.append(t.toString().trim()).append('\n');
+                }
+                for (int i = n.getChildCount() - 1; i >= 0; i--) stack.add(n.getChild(i));
+            }
+        }
+        return out.toString().trim();
+    }
+
     private static final String NOT_ENABLED = "Bedienungshilfe ist nicht aktiviert (Berechtigungen → Bedienungshilfe)";
 
     @Override

@@ -31,6 +31,12 @@
   const icon = (name, cls) => h('span', { class: 'mi' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, name);
 
   const ui = (MS.ui = { h, icon });
+  /** Lesbarer Name eines freigegebenen Ordners (content://…/tree/primary%3ADocuments → Documents). */
+  function folderName(uri) {
+    if (!uri) return 'Noch kein Ordner ausgewählt.';
+    const last = decodeURIComponent(String(uri).split('/tree/').pop() || '');
+    return 'Ordner: ' + (last.split(':').pop() || last || uri);
+  }
 
   // ---------------------------------------------------------------- Toasts
   ui.toast = function (msg, ms = 2200, ic) {
@@ -424,6 +430,26 @@
           } }, icon('add_photo_alternate'), p[f.key] ? 'Anderes Bild wählen' : 'Bild auswählen');
           return h('div', { class: 'field' }, h('span', { class: 'field-label' }, f.label), preview, btn,
             h('span', { class: 'field-hint' }, 'Tipp: Einen Screenshot machen und auf den gesuchten Bereich zuschneiden.'));
+        }
+        case 'folder': {
+          if (!MS.native.available) return h('p', { class: 'field-info' }, 'Ordner gibt es nur in der Android-App.');
+          const label = h('span', { class: 'field-hint' }, folderName(p[f.key]));
+          const btn = h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
+            const uri = await MS.native.pickFolder();
+            if (!uri) return;
+            set(uri);
+            label.textContent = folderName(uri);
+          } }, icon('folder_open'), 'Ordner auswählen');
+          return h('div', { class: 'field' }, h('span', { class: 'field-label' }, f.label), label, btn);
+        }
+        case 'button': {
+          if (f.nativeOnly && !MS.native.available) return null;
+          return h('div', { class: 'field' }, h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
+            try {
+              const msg = await f.onClick(p, ctx);
+              if (msg) ui.toast(msg);
+            } catch (e) { ui.toast(e.message, 5000, 'error'); }
+          } }, icon(f.icon || 'touch_app'), f.label), f.hint ? h('span', { class: 'field-hint' }, f.hint) : null);
         }
         case 'trigger': {
           const list = ctx.triggers || [];

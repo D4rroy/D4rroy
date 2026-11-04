@@ -78,6 +78,13 @@
   }
 
   const OPENERS = { if: 'end_if', loop: 'end_loop', group: 'end_group' };
+  /** Einträge für „Für jeden Eintrag“: Wörterbuch → [Schlüssel, Wert], Liste → [Nr., Wert], Text → Zeilen. */
+  function loopItems(v) {
+    if (Array.isArray(v)) return v.map((x, i) => [String(i + 1), x]);
+    if (v && typeof v === 'object') return Object.entries(v);
+    if (v === undefined || v === null || v === '') return [];
+    return String(v).split('\n').filter((l) => l !== '').map((l, i) => [String(i + 1), l]);
+  }
   /** Index des passenden Blockendes (End If / Ende Schleife / Ende Gruppe) – oder das Listenende. */
   function blockEnd(actions, start) {
     const want = OPENERS[actions[start] && actions[start].type];
@@ -285,11 +292,19 @@
             break;
           case 'loop': {
             let fr = frames[frames.length - 1];
-            if (!fr || fr.start !== pc) { fr = { start: pc, end: f.end, iter: 0 }; frames.push(fr); }
-            else fr.iter++;
+            if (!fr || fr.start !== pc) {
+              fr = { start: pc, end: f.end, iter: 0 };
+              if (p.mode === 'foreach') fr.items = loopItems(MS.vars.get(p.var, ctx));
+              frames.push(fr);
+            } else fr.iter++;
             const go = p.mode === 'forever' ? true
               : p.mode === 'while' ? this.checkAll(p.conditions, p.logic, ctx)
+              : p.mode === 'foreach' ? fr.iter < fr.items.length
               : fr.iter < (Number(p.count) || 0);
+            if (go && p.mode === 'foreach') {
+              const [key, value] = fr.items[fr.iter];
+              ctx.data = Object.assign({}, ctx.data, { loop_key: key, loop_value: MS.vars.format(value) });
+            }
             if (go) { ctx.iteration = fr.iter + 1; pc++; }
             else { frames.pop(); ctx.iteration = frames.length ? frames[frames.length - 1].iter + 1 : 0; pc = f.end + 1; }
             break;

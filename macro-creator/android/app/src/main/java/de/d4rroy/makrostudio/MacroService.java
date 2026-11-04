@@ -35,6 +35,16 @@ public class MacroService extends Service {
         ContextCompat.startForegroundService(c, new Intent(c, MacroService.class));
     }
 
+    /** Startet den Dienst, falls er eingeschaltet ist und noch nicht läuft (Fehler beim Start aus dem Hintergrund werden ignoriert). */
+    static void startIfEnabled(Context c) {
+        if (running || !Prefs.get(c).getBoolean(Prefs.SERVICE, false)) return;
+        try {
+            start(c);
+        } catch (RuntimeException e) {
+            android.util.Log.w("MakroStudio", "Dienst konnte nicht gestartet werden: " + e.getMessage());
+        }
+    }
+
     static void stop(Context c) {
         c.stopService(new Intent(c, MacroService.class));
     }

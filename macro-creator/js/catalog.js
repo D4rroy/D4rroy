@@ -1591,5 +1591,8 @@
     },
     notify,
     setWake,
+    /** Für Erweiterungen (catalog-device.js). */
+    def: { T, A, C },
+    helpers: { M, opt, varName, appName, nativeOnly, due, daysText, UNIT_OPTIONS, UNIT_MS, unitLabel, condField, logicField, condText, MATCH, macroName },
   };
 })();

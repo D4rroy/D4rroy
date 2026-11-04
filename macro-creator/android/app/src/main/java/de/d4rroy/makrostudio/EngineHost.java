@@ -38,6 +38,8 @@ final class EngineHost {
     static final int REQ_SAVE = 2;
     static final int REQ_GEO = 3;
     static final int REQ_IMAGE = 4;
+    static final int REQ_FOLDER = 5;
+    static final int REQ_SPEECH = 6;
 
     private static EngineHost instance;
 
@@ -53,6 +55,11 @@ final class EngineHost {
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
     volatile boolean startedByBoot;
+    private SystemMonitor monitor;
+    private WebhookServer webhook;
+    /** Ereignisse, die eintreffen, bevor die Web-App bereit ist (z. B. Start durch NFC oder Kachel). */
+    private final java.util.ArrayList<String> pendingEvents = new java.util.ArrayList<>();
+    private volatile boolean ready;
 
     /**
      * Sekundentakt für die Engine. Er läuft über Android statt über JavaScript-Timer,
@@ -113,6 +120,51 @@ final class EngineHost {
         } catch (ActivityNotFoundException | SecurityException e) {
             return false;
         }
+    }
+
+    /** Meldet ein Geräte-Ereignis an die Engine (MS.bus: 'sys:' + name). */
+    void event(String name, org.json.JSONObject data) {
+        String payload = org.json.JSONObject.quote(name) + "," + (data == null ? "{}" : data.toString());
+        synchronized (pendingEvents) {
+            if (!ready || web == null) {
+                if (pendingEvents.size() < 50) pendingEvents.add("[" + payload + "]");
+                return;
+            }
+        }
+        eval("window.MS&&MS.native&&MS.native._event&&MS.native._event(" + payload + ")");
+    }
+
+    /** Die Web-App ist geladen: zwischengespeicherte Ereignisse abholen. */
+    String engineReady() {
+        synchronized (pendingEvents) {
+            ready = true;
+            String out = "[" + android.text.TextUtils.join(",", pendingEvents) + "]";
+            pendingEvents.clear();
+            return out;
+        }
+    }
+
+    SystemMonitor monitor() {
+        return monitor;
+    }
+
+    /** Startet oder stoppt den Webhook-Server nach den gespeicherten Einstellungen. */
+    void updateWebhook() {
+        if (webhook != null) webhook.stop();
+        webhook = null;
+        int port = Prefs.get(app).getInt(Prefs.WEBHOOK_PORT, 0);
+        if (port > 0 && web != null) {
+            webhook = new WebhookServer(this, port, Prefs.get(app).getString(Prefs.WEBHOOK_TOKEN, ""));
+            webhook.start();
+        }
+    }
+
+    private void stopMonitors() {
+        if (monitor != null) monitor.stop();
+        monitor = null;
+        if (webhook != null) webhook.stop();
+        webhook = null;
+        ready = false;
     }
 
     // ------------------------------------------------------------ Engine
@@ -190,8 +242,16 @@ final class EngineHost {
             }
         });
 
+        ready = false;
         web.loadUrl(START_URL);
         registerBatteryReceiver();
+        monitor = new SystemMonitor(this);
+        try {
+            monitor.start();
+        } catch (RuntimeException e) {
+            android.util.Log.w("MakroStudio", "Systemmonitor: " + e.getMessage());
+        }
+        updateWebhook();
         main.postDelayed(ticker, 1000);
     }
 
@@ -204,6 +264,7 @@ final class EngineHost {
         if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
         batteryReceiver = null;
         bluetoothReceiver = null;
+        stopMonitors();
         if (bridge != null) bridge.shutdown();
         web = null;
         bridge = null;
@@ -219,6 +280,8 @@ final class EngineHost {
     }
 
     /** Meldet jede Akkuänderung an die Web-App (Auslöser „Akkustand“ und „Stromanschluss“). */
+    private int lastTemp = Integer.MIN_VALUE / 2;
+
     private void registerBatteryReceiver() {
         batteryReceiver = new BroadcastReceiver() {
             @Override
@@ -226,6 +289,11 @@ final class EngineHost {
                 int[] b = NativeBridge.readBattery(intent);
                 if (b[0] < 0) return;
                 eval("window.MS&&MS.native&&MS.native._battery&&MS.native._battery(" + b[0] + "," + (b[1] == 1) + ")");
+                int temp = intent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+                if (temp != Integer.MIN_VALUE && Math.abs(temp - lastTemp) >= 5) {
+                    lastTemp = temp;
+                    event("battery_temp", SystemMonitor.obj("celsius", temp / 10.0));
+                }
             }
         };
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -266,6 +334,7 @@ final class EngineHost {
         if (bluetoothReceiver != null) app.unregisterReceiver(bluetoothReceiver);
         batteryReceiver = null;
         bluetoothReceiver = null;
+        stopMonitors();
         bridge.shutdown();
         web.destroy();
         web = null;
@@ -299,6 +368,8 @@ final class EngineHost {
             fileCallback = null;
         } else if (requestCode == REQ_IMAGE && bridge != null) {
             bridge.onImagePicked(resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
+        } else if ((requestCode == REQ_FOLDER || requestCode == REQ_SPEECH) && bridge != null) {
+            bridge.onActivityResult(requestCode, resultCode, data);
         } else if (requestCode == REQ_SAVE && bridge != null) {
             bridge.onSaveResult(resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
         }

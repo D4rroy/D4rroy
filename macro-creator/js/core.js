@@ -534,7 +534,7 @@
     ],
     apply(text, ctx) {
       if (text === undefined || text === null) return '';
-      return String(text).replace(/\{([a-z_]+)(?:=([^{}]*))?\}/gi, (m, key, arg) => {
+      return String(text).replace(/\{([a-z_][a-z0-9_]*)(?:=([^{}]*))?\}/gi, (m, key, arg) => {
         const r = resolveToken(key.toLowerCase(), arg, ctx);
         return r === undefined ? m : String(r);
       });
@@ -585,7 +585,11 @@
       case 'fg_app_package': return MS.native.available ? MS.native.foregroundApp() : '';
       case 'fg_activity_class': return MS.native.available ? MS.native.foregroundActivity() : '';
       case 'fg_app_name': return MS.native.available ? MS.native.foregroundAppName() : '';
-      default: return undefined;
+      default:
+        // Werte des Auslösers (z. B. {call_number}, {sms_text}, {wh_name}) und Live-Werte des Geräts
+        if (ctx && ctx.data && ctx.data[key] !== undefined) return ctx.data[key];
+        if (MS.magic.live && MS.magic.live[key]) return MS.magic.live[key]();
+        return undefined;
     }
   }
 })();

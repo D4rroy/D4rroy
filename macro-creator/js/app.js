@@ -113,7 +113,12 @@
   // ------------------------------------------------------------- Start
   MS.store.load();
   applyTheme();
-  if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  if (window.matchMedia) {
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      applyTheme();
+      MS.bus.emit('dark-mode', { dark: e.matches });
+    });
+  }
   window.addEventListener('hashchange', onHashChange);
   // Beim Öffnen über eine Verknüpfungs-Adresse den Auslöser nach dem Engine-Start feuern
   const startRun = /^#\/run\/([\w-]+)$/.exec(location.hash);
@@ -123,6 +128,7 @@
     MS.bus.emit('app-start');
     if (MS.native.available) {
       if (MS.native.startedByBoot()) MS.bus.emit('device-boot');
+      MS.native.ready();
       // Daueranzeige des Hintergrunddienstes aktuell halten
       const status = () => {
         if (MS.native.customStatus) return;

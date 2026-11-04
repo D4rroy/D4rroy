@@ -360,7 +360,7 @@
     let savedJson = stored ? stateJson(draft) : '';
     let isNew = !stored;
     const dirty = () => stateJson(draft) !== savedJson;
-    const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id, triggers: draft.triggers || [] });
+    const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id, triggers: draft.triggers || [], macroName: draft.name });
     let root, keyHandler;
 
     function save() {
@@ -1025,8 +1025,21 @@
       h('div', { class: 'card' },
         row('Hintergrunddienst', st.service ? 'Läuft – Makros arbeiten auch bei geschlossener App.' : 'Aus – Makros laufen nur, solange die App geöffnet ist.', switchEl(st.service, toggle('service'), 'Hintergrunddienst')),
         row('Beim Gerätestart starten', 'Startet den Dienst nach einem Neustart automatisch (Auslöser „Gerät gestartet“).', switchEl(st.autostart, toggle('autostart'), 'Beim Gerätestart starten')),
-        row('CPU wach halten', 'Makros laufen auch bei ausgeschaltetem Bildschirm pünktlich. Braucht etwas mehr Akku.', switchEl(st.cpu_wake, toggle('cpu_wake'), 'CPU wach halten'))),
+        row('CPU wach halten', 'Makros laufen auch bei ausgeschaltetem Bildschirm pünktlich. Braucht etwas mehr Akku.', switchEl(st.cpu_wake, toggle('cpu_wake'), 'CPU wach halten')),
+        row('Webhook-Port', 'Port des kleinen Servers für den Auslöser „Webhook“ (1024–65535). Er läuft nur, solange ein Webhook-Makro aktiv ist.', webhookPortInput())),
     ];
+  }
+  function webhookPortInput() {
+    const s = MS.store.state.settings;
+    const i = h('input', { class: 'input input-sm', type: 'number', min: 1024, max: 65535, value: s.webhookPort || 8080, style: { width: '6.5em' }, 'aria-label': 'Webhook-Port' });
+    i.addEventListener('change', () => {
+      const v = Math.round(Number(i.value));
+      if (v < 1024 || v > 65535) { i.value = s.webhookPort || 8080; ui.toast('Port muss zwischen 1024 und 65535 liegen'); return; }
+      s.webhookPort = v;
+      MS.store.save();
+      MS.engine.restart && MS.engine.restart();
+    });
+    return i;
   }
 
   views.permissions = () => {

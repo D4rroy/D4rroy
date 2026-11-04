@@ -204,6 +204,10 @@ class NativeBridge {
                     .put("overlay", Settings.canDrawOverlays(app))
                     .put("bluetooth", Build.VERSION.SDK_INT < 31 || granted(Manifest.permission.BLUETOOTH_CONNECT))
                     .put("exact_alarm", WakeReceiver.canExact(app))
+                    .put("phone", granted(Manifest.permission.READ_PHONE_STATE) && granted(Manifest.permission.CALL_PHONE)
+                            && (Build.VERSION.SDK_INT < 26 || granted(Manifest.permission.ANSWER_PHONE_CALLS)) && granted(Manifest.permission.READ_CALL_LOG))
+                    .put("sms", granted(Manifest.permission.RECEIVE_SMS) && granted(Manifest.permission.SEND_SMS))
+                    .put("calendar", granted(Manifest.permission.READ_CALENDAR) && granted(Manifest.permission.WRITE_CALENDAR))
                     .put("service", MacroService.running)
                     .put(Prefs.AUTOSTART, Prefs.get(app).getBoolean(Prefs.AUTOSTART, false))
                     .put(Prefs.CPU_WAKE, Prefs.get(app).getBoolean(Prefs.CPU_WAKE, false))
@@ -246,6 +250,18 @@ class NativeBridge {
                 break;
             case "bluetooth":
                 if (Build.VERSION.SDK_INT >= 31) runtime = new String[] { Manifest.permission.BLUETOOTH_CONNECT };
+                break;
+            case "phone": {
+                List<String> p = new ArrayList<>(java.util.Arrays.asList(Manifest.permission.READ_PHONE_STATE, Manifest.permission.CALL_PHONE, Manifest.permission.READ_CALL_LOG));
+                if (Build.VERSION.SDK_INT >= 26) p.add(Manifest.permission.ANSWER_PHONE_CALLS);
+                runtime = p.toArray(new String[0]);
+                break;
+            }
+            case "sms":
+                runtime = new String[] { Manifest.permission.RECEIVE_SMS, Manifest.permission.SEND_SMS };
+                break;
+            case "calendar":
+                runtime = new String[] { Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR };
                 break;
             case "accessibility":
                 settings = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
@@ -908,8 +924,626 @@ class NativeBridge {
         }
     }
 
+    // ====================================================== Systemereignisse
+    /** Die Web-App ist bereit: liefert Ereignisse, die vorher eingetroffen sind. */
+    @JavascriptInterface
+    public String engineReady() {
+        return host.engineReady();
+    }
+
+    /** Aktueller Gerätezustand für Bedingungen (Netzwerk, Kopfhörer, Bildschirm, Anruf …). */
+    @JavascriptInterface
+    public String deviceState() {
+        try {
+            SystemMonitor m = host.monitor();
+            PowerManager pm = app.getSystemService(PowerManager.class);
+            android.bluetooth.BluetoothManager bm = app.getSystemService(android.bluetooth.BluetoothManager.class);
+            android.net.wifi.WifiManager wm = app.getSystemService(android.net.wifi.WifiManager.class);
+            Intent bat = app.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            JSONObject o = new JSONObject()
+                    .put("network", m == null ? new JSONObject() : m.currentNetwork())
+                    .put("headphones", m != null && m.headphonesConnected())
+                    .put("call", m == null ? "idle" : m.callState())
+                    .put("screenOn", pm.isInteractive())
+                    .put("powerSave", pm.isPowerSaveMode())
+                    .put("airplane", Settings.Global.getInt(app.getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0) == 1)
+                    .put("btOn", bm != null && bm.getAdapter() != null && bm.getAdapter().isEnabled())
+                    .put("wifiOn", wm != null && wm.isWifiEnabled())
+                    .put("batteryTemp", bat == null ? 0 : bat.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0);
+            return o.toString();
+        } catch (JSONException | RuntimeException e) {
+            return "{}";
+        }
+    }
+
+    /** Einstellungen, die Android-Komponenten ohne Web-App lesen (Lautstärketasten, Kacheln). */
+    @JavascriptInterface
+    public void setFlag(String key, boolean on) {
+        if (!key.equals(Prefs.VOLUME_WATCH) && !key.equals(Prefs.VOLUME_CONSUME)) return;
+        Prefs.get(app).edit().putBoolean(key, on).apply();
+    }
+
+    @JavascriptInterface
+    public void setTileLabel(int tile, String label) {
+        if (tile < 1 || tile > 3) return;
+        Prefs.get(app).edit().putString("tile_label_" + tile, label).apply();
+        if (Build.VERSION.SDK_INT >= 24) {
+            Class<?> c = tile == 1 ? Tile1.class : tile == 2 ? Tile2.class : Tile3.class;
+            android.service.quicksettings.TileService.requestListeningState(app, new android.content.ComponentName(app, c));
+        }
+    }
+
+    /** Webhook-Server: port 0 = aus. */
+    @JavascriptInterface
+    public void setWebhook(int port, String token) {
+        Prefs.get(app).edit().putInt(Prefs.WEBHOOK_PORT, port).putString(Prefs.WEBHOOK_TOKEN, token).apply();
+        host.main.post(host::updateWebhook);
+    }
+
+    /** IP-Adressen des Geräts im lokalen Netz. */
+    @JavascriptInterface
+    public String localIps() {
+        JSONArray a = new JSONArray();
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (java.net.InetAddress ad : java.util.Collections.list(ni.getInetAddresses())) {
+                    if (ad instanceof java.net.Inet4Address) a.put(ad.getHostAddress());
+                }
+            }
+        } catch (Exception ignored) {
+            // keine Netzwerkschnittstellen
+        }
+        return a.toString();
+    }
+
+    // ============================================================ Telefon
+    @JavascriptInterface
+    public String callNumber(String number) {
+        if (!granted(Manifest.permission.CALL_PHONE)) return "Berechtigung „Telefon“ fehlt (Berechtigungen → Telefon)";
+        Intent i = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(number)));
+        return onMain(() -> host.startActivity(i) ? "" : "Anruf konnte nicht gestartet werden", "Anruf fehlgeschlagen");
+    }
+
+    @SuppressWarnings({ "deprecation", "MissingPermission" })
+    @JavascriptInterface
+    public String callControl(String action) {
+        if (Build.VERSION.SDK_INT < 26) return "Benötigt Android 8";
+        if (!granted(Manifest.permission.ANSWER_PHONE_CALLS)) return "Berechtigung „Telefon“ fehlt (Berechtigungen → Telefon)";
+        android.telecom.TelecomManager tm = app.getSystemService(android.telecom.TelecomManager.class);
+        try {
+            if ("answer".equals(action)) {
+                tm.acceptRingingCall();
+                return "";
+            }
+            if (Build.VERSION.SDK_INT < 28) return "Auflegen benötigt Android 9";
+            return tm.endCall() ? "" : "Kein laufender Anruf";
+        } catch (SecurityException e) {
+            return "Anrufsteuerung verweigert: " + e.getMessage();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @JavascriptInterface
+    public String sendSms(String number, String text) {
+        if (!granted(Manifest.permission.SEND_SMS)) return "Berechtigung „SMS“ fehlt (Berechtigungen → SMS)";
+        try {
+            android.telephony.SmsManager sm = Build.VERSION.SDK_INT >= 31
+                    ? app.getSystemService(android.telephony.SmsManager.class)
+                    : android.telephony.SmsManager.getDefault();
+            ArrayList<String> parts = sm.divideMessage(text);
+            if (parts.size() > 1) sm.sendMultipartTextMessage(number, null, parts, null, null);
+            else sm.sendTextMessage(number, null, text, null, null);
+            return "";
+        } catch (RuntimeException e) {
+            return "SMS: " + e.getMessage();
+        }
+    }
+
+    // ================================================= Benachrichtigungen anderer Apps
+    @JavascriptInterface
+    public String notificationDismiss(String pkg, String contains) {
+        return NotificationWatcher.dismiss(pkg, contains);
+    }
+
+    @JavascriptInterface
+    public String notificationPress(String pkg, String contains, String button) {
+        return NotificationWatcher.press(pkg, contains, button);
+    }
+
+    // ================================================= Bildschirminhalt
+    @JavascriptInterface
+    public String screenText() {
+        String t = onMain(AccessibilityHelper::screenText, null);
+        try {
+            return t == null ? new JSONObject().put("error", "Bedienungshilfe ist nicht aktiviert (Berechtigungen → Bedienungshilfe)").toString()
+                    : new JSONObject().put("text", t).toString();
+        } catch (JSONException e) {
+            return "{}";
+        }
+    }
+
+    /** Texterkennung (OCR) auf einem Screenshot. Ergebnis JSON {text} oder {error}. */
+    @JavascriptInterface
+    public void ocr(String region, String callbackId) {
+        String err = onMain(() -> AccessibilityHelper.screenshot((screen) -> {
+            if (screen == null) {
+                resolve(callbackId, JSONObject.quote("{\"error\":\"Screenshot nicht möglich\"}"));
+                return;
+            }
+            android.graphics.Bitmap img = screen;
+            try {
+                if (!region.isEmpty()) {
+                    String[] p = region.split(",");
+                    int x = Math.max(0, Integer.parseInt(p[0].trim())), y = Math.max(0, Integer.parseInt(p[1].trim()));
+                    int w = Math.min(screen.getWidth() - x, Integer.parseInt(p[2].trim()));
+                    int h = Math.min(screen.getHeight() - y, Integer.parseInt(p[3].trim()));
+                    if (w > 0 && h > 0) img = android.graphics.Bitmap.createBitmap(screen, x, y, w, h);
+                }
+            } catch (RuntimeException e) {
+                img = screen;
+            }
+            TextOcr.recognize(img, (text, error) -> {
+                try {
+                    JSONObject o = error != null ? new JSONObject().put("error", error) : new JSONObject().put("text", text);
+                    resolve(callbackId, JSONObject.quote(o.toString()));
+                } catch (JSONException e) {
+                    resolve(callbackId, JSONObject.quote("{\"error\":\"OCR fehlgeschlagen\"}"));
+                }
+            });
+        }), "Screenshot fehlgeschlagen");
+        if (err != null && !err.isEmpty()) resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(err) + "}"));
+    }
+
+    // ============================================================ Dateien
+    private String pendingFolderCallback;
+    private String pendingSpeechCallback;
+
+    /** Lässt einen Ordner auswählen (dauerhafte Freigabe). Ergebnis: URI oder "". */
+    @JavascriptInterface
+    public void pickFolder(String callbackId) {
+        host.main.post(() -> {
+            Activity a = host.activity();
+            if (a == null) {
+                resolve(callbackId, "\"\"");
+                return;
+            }
+            pendingFolderCallback = callbackId;
+            try {
+                a.startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), EngineHost.REQ_FOLDER);
+            } catch (Exception e) {
+                pendingFolderCallback = null;
+                resolve(callbackId, "\"\"");
+            }
+        });
+    }
+
+    void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == EngineHost.REQ_FOLDER) {
+            String cb = pendingFolderCallback;
+            pendingFolderCallback = null;
+            if (cb == null) return;
+            Uri uri = resultCode == Activity.RESULT_OK && data != null ? data.getData() : null;
+            if (uri == null) {
+                resolve(cb, "\"\"");
+                return;
+            }
+            try {
+                app.getContentResolver().takePersistableUriPermission(uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // nicht dauerhaft freigegeben – gilt dann nur bis zum Neustart
+            }
+            resolve(cb, JSONObject.quote(uri.toString()));
+        } else if (requestCode == EngineHost.REQ_SPEECH) {
+            String cb = pendingSpeechCallback;
+            pendingSpeechCallback = null;
+            if (cb == null) return;
+            ArrayList<String> res = resultCode == Activity.RESULT_OK && data != null
+                    ? data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS) : null;
+            resolve(cb, JSONObject.quote(res == null || res.isEmpty() ? "" : res.get(0)));
+        }
+    }
+
+    private static String readAll(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            b.write(buf, 0, n);
+            if (b.size() > 5 * 1024 * 1024) throw new java.io.IOException("Datei ist größer als 5 MB");
+        }
+        return b.toString("UTF-8");
+    }
+
+    /** Dateiaktion im freigegebenen Ordner. op: write | append | read | delete | exists | list. Ergebnis JSON {text} oder {error}. */
+    @JavascriptInterface
+    public String fileOp(String folder, String name, String op, String text) {
+        try {
+            if (folder.isEmpty()) return new JSONObject().put("error", "Kein Ordner ausgewählt").toString();
+            androidx.documentfile.provider.DocumentFile dir = androidx.documentfile.provider.DocumentFile.fromTreeUri(app, Uri.parse(folder));
+            if (dir == null || !dir.canRead()) return new JSONObject().put("error", "Ordner nicht zugänglich – bitte neu auswählen").toString();
+            if ("list".equals(op)) {
+                StringBuilder sb = new StringBuilder();
+                for (androidx.documentfile.provider.DocumentFile f : dir.listFiles()) sb.append(f.getName()).append('\n');
+                return new JSONObject().put("text", sb.toString().trim()).toString();
+            }
+            String clean = new java.io.File(name).getName();
+            if (clean.isEmpty()) return new JSONObject().put("error", "Kein Dateiname").toString();
+            androidx.documentfile.provider.DocumentFile f = dir.findFile(clean);
+            switch (op) {
+                case "exists":
+                    return new JSONObject().put("text", f != null && f.exists() ? "true" : "false").toString();
+                case "read":
+                    if (f == null) return new JSONObject().put("error", "Datei „" + clean + "“ nicht gefunden").toString();
+                    try (java.io.InputStream in = app.getContentResolver().openInputStream(f.getUri())) {
+                        return new JSONObject().put("text", in == null ? "" : readAll(in)).toString();
+                    }
+                case "delete":
+                    return new JSONObject().put("text", f != null && f.delete() ? "true" : "false").toString();
+                default: {
+                    boolean append = "append".equals(op);
+                    if (f == null) f = dir.createFile("text/plain", clean);
+                    if (f == null) return new JSONObject().put("error", "Datei konnte nicht angelegt werden").toString();
+                    try (OutputStream os = app.getContentResolver().openOutputStream(f.getUri(), append ? "wa" : "wt")) {
+                        if (os == null) throw new java.io.IOException("Datei nicht beschreibbar");
+                        os.write(text.getBytes(StandardCharsets.UTF_8));
+                    }
+                    return new JSONObject().put("text", "").toString();
+                }
+            }
+        } catch (Exception e) {
+            return "{\"error\":" + JSONObject.quote("Datei: " + e.getMessage()) + "}";
+        }
+    }
+
+    // ============================================================ E-Mail
+    @JavascriptInterface
+    public void sendMail(String json, String callbackId) {
+        new Thread(() -> {
+            String err;
+            try {
+                JSONObject o = new JSONObject(json);
+                err = SmtpClient.send(o.getString("host"), o.getInt("port"), o.optString("security", "ssl"),
+                        o.optString("user"), o.optString("password"), o.getString("from"), o.getString("to"),
+                        o.optString("subject"), o.optString("body"));
+            } catch (JSONException e) {
+                err = "E-Mail: unvollständige Angaben";
+            }
+            resolve(callbackId, JSONObject.quote(err));
+        }, "E-Mail").start();
+    }
+
+    // ============================================================ Kalender
+    /** Termine zwischen from und to (ms) als JSON-Array. */
+    @JavascriptInterface
+    public String calendarEvents(double from, double to) {
+        if (!granted(Manifest.permission.READ_CALENDAR)) return "{\"error\":\"Berechtigung „Kalender“ fehlt\"}";
+        JSONArray a = new JSONArray();
+        Uri.Builder b = android.provider.CalendarContract.Instances.CONTENT_URI.buildUpon();
+        android.content.ContentUris.appendId(b, (long) from);
+        android.content.ContentUris.appendId(b, (long) to);
+        String[] cols = { android.provider.CalendarContract.Instances.TITLE, android.provider.CalendarContract.Instances.BEGIN,
+                android.provider.CalendarContract.Instances.END, android.provider.CalendarContract.Instances.ALL_DAY,
+                android.provider.CalendarContract.Instances.EVENT_LOCATION, android.provider.CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
+                android.provider.CalendarContract.Instances.DESCRIPTION };
+        try (android.database.Cursor c = app.getContentResolver().query(b.build(), cols, null, null,
+                android.provider.CalendarContract.Instances.BEGIN + " ASC")) {
+            while (c != null && c.moveToNext() && a.length() < 200) {
+                a.put(new JSONObject().put("title", c.getString(0) == null ? "" : c.getString(0)).put("begin", c.getLong(1))
+                        .put("end", c.getLong(2)).put("allDay", c.getInt(3) == 1)
+                        .put("location", c.getString(4) == null ? "" : c.getString(4))
+                        .put("calendar", c.getString(5) == null ? "" : c.getString(5))
+                        .put("description", c.getString(6) == null ? "" : c.getString(6)));
+            }
+        } catch (Exception e) {
+            return "{\"error\":" + JSONObject.quote("Kalender: " + e.getMessage()) + "}";
+        }
+        return a.toString();
+    }
+
+    @JavascriptInterface
+    public String calendarAdd(String title, String description, String location, double begin, double end, boolean allDay) {
+        if (!granted(Manifest.permission.WRITE_CALENDAR) || !granted(Manifest.permission.READ_CALENDAR)) return "Berechtigung „Kalender“ fehlt";
+        long calId = -1;
+        try (android.database.Cursor c = app.getContentResolver().query(android.provider.CalendarContract.Calendars.CONTENT_URI,
+                new String[] { android.provider.CalendarContract.Calendars._ID, android.provider.CalendarContract.Calendars.IS_PRIMARY },
+                android.provider.CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + ">=" + android.provider.CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR
+                        + " AND " + android.provider.CalendarContract.Calendars.VISIBLE + "=1",
+                null, null)) {
+            while (c != null && c.moveToNext()) {
+                if (calId < 0 || c.getInt(1) == 1) calId = c.getLong(0);
+            }
+        } catch (Exception e) {
+            return "Kalender: " + e.getMessage();
+        }
+        if (calId < 0) return "Kein beschreibbarer Kalender gefunden";
+        android.content.ContentValues v = new android.content.ContentValues();
+        v.put(android.provider.CalendarContract.Events.CALENDAR_ID, calId);
+        v.put(android.provider.CalendarContract.Events.TITLE, title);
+        v.put(android.provider.CalendarContract.Events.DESCRIPTION, description);
+        v.put(android.provider.CalendarContract.Events.EVENT_LOCATION, location);
+        v.put(android.provider.CalendarContract.Events.DTSTART, (long) begin);
+        v.put(android.provider.CalendarContract.Events.DTEND, (long) Math.max(begin, end));
+        v.put(android.provider.CalendarContract.Events.ALL_DAY, allDay ? 1 : 0);
+        v.put(android.provider.CalendarContract.Events.EVENT_TIMEZONE, allDay ? "UTC" : java.util.TimeZone.getDefault().getID());
+        try {
+            return app.getContentResolver().insert(android.provider.CalendarContract.Events.CONTENT_URI, v) != null ? "" : "Termin konnte nicht angelegt werden";
+        } catch (Exception e) {
+            return "Kalender: " + e.getMessage();
+        }
+    }
+
+    // ============================================================ Anzeige & System
+    @JavascriptInterface
+    public String setWallpaper(String imageName, String which) {
+        java.io.File f = new java.io.File(imageDir(), new java.io.File(imageName).getName());
+        android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(f.getPath());
+        if (b == null) return "Kein Bild ausgewählt";
+        try {
+            android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(app);
+            int flags = "lock".equals(which) ? android.app.WallpaperManager.FLAG_LOCK
+                    : "home".equals(which) ? android.app.WallpaperManager.FLAG_SYSTEM
+                    : android.app.WallpaperManager.FLAG_SYSTEM | android.app.WallpaperManager.FLAG_LOCK;
+            wm.setBitmap(b, null, true, flags);
+            return "";
+        } catch (Exception e) {
+            return "Hintergrundbild: " + e.getMessage();
+        }
+    }
+
+    private android.view.View overlayView;
+
+    /** Blendet Text über allen Apps ein (seconds 0 = bis zum nächsten Aufruf mit leerem Text). */
+    @JavascriptInterface
+    public String overlayText(String text, double seconds, String position, int sizeSp, String color, String background) {
+        if (!Settings.canDrawOverlays(app)) return "Berechtigung „Über anderen Apps einblenden“ fehlt";
+        host.main.post(() -> {
+            android.view.WindowManager wm = app.getSystemService(android.view.WindowManager.class);
+            if (overlayView != null) {
+                try {
+                    wm.removeView(overlayView);
+                } catch (RuntimeException ignored) {
+                    // bereits entfernt
+                }
+                overlayView = null;
+            }
+            if (text.isEmpty()) return;
+            android.widget.TextView tv = new android.widget.TextView(app);
+            tv.setText(text);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, Math.max(8, sizeSp));
+            int pad = Math.round(12 * app.getResources().getDisplayMetrics().density);
+            tv.setPadding(pad, pad / 2, pad, pad / 2);
+            try {
+                tv.setTextColor(android.graphics.Color.parseColor(color));
+                tv.setBackgroundColor(android.graphics.Color.parseColor(background));
+            } catch (IllegalArgumentException e) {
+                tv.setTextColor(0xFFFFFFFF);
+                tv.setBackgroundColor(0xCC000000);
+            }
+            android.view.WindowManager.LayoutParams lp = new android.view.WindowManager.LayoutParams(
+                    android.view.WindowManager.LayoutParams.WRAP_CONTENT, android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                    Build.VERSION.SDK_INT >= 26 ? android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : android.view.WindowManager.LayoutParams.TYPE_PHONE,
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                    android.graphics.PixelFormat.TRANSLUCENT);
+            lp.gravity = android.view.Gravity.CENTER_HORIZONTAL | ("top".equals(position) ? android.view.Gravity.TOP
+                    : "bottom".equals(position) ? android.view.Gravity.BOTTOM : android.view.Gravity.CENTER_VERTICAL);
+            lp.y = "center".equals(position) ? 0 : pad * 4;
+            try {
+                wm.addView(tv, lp);
+                overlayView = tv;
+            } catch (RuntimeException e) {
+                toast("Einblenden fehlgeschlagen: " + e.getMessage());
+                return;
+            }
+            if (seconds > 0) {
+                android.view.View shown = tv;
+                host.main.postDelayed(() -> {
+                    if (overlayView != shown) return;
+                    try {
+                        wm.removeView(shown);
+                    } catch (RuntimeException ignored) {
+                        // bereits entfernt
+                    }
+                    overlayView = null;
+                }, Math.round(seconds * 1000));
+            }
+        });
+        return "";
+    }
+
+    /** Schreibt eine Systemeinstellung (screen_off_timeout in ms, accelerometer_rotation 0/1). */
+    @JavascriptInterface
+    public String setSystemSetting(String name, int value) {
+        if (!Settings.System.canWrite(app)) return "Berechtigung „Systemeinstellungen ändern“ fehlt";
+        String key;
+        switch (name) {
+            case "screen_timeout": key = Settings.System.SCREEN_OFF_TIMEOUT; break;
+            case "auto_rotate": key = Settings.System.ACCELEROMETER_ROTATION; break;
+            default: return "Unbekannte Einstellung";
+        }
+        try {
+            return Settings.System.putInt(app.getContentResolver(), key, value) ? "" : "Einstellung wurde abgelehnt";
+        } catch (RuntimeException e) {
+            return "Einstellung: " + e.getMessage();
+        }
+    }
+
+    @JavascriptInterface
+    public int getSystemSetting(String name) {
+        String key = "auto_rotate".equals(name) ? Settings.System.ACCELEROMETER_ROTATION : Settings.System.SCREEN_OFF_TIMEOUT;
+        return Settings.System.getInt(app.getContentResolver(), key, -1);
+    }
+
+    /** Öffnet ein Schnelleinstellungs-Panel bzw. die passende Einstellungsseite. */
+    @JavascriptInterface
+    public String openPanel(String which) {
+        String action;
+        switch (which) {
+            case "wifi": action = Build.VERSION.SDK_INT >= 29 ? Settings.Panel.ACTION_WIFI : Settings.ACTION_WIFI_SETTINGS; break;
+            case "internet": action = Build.VERSION.SDK_INT >= 29 ? Settings.Panel.ACTION_INTERNET_CONNECTIVITY : Settings.ACTION_WIRELESS_SETTINGS; break;
+            case "nfc": action = Build.VERSION.SDK_INT >= 29 ? Settings.Panel.ACTION_NFC : Settings.ACTION_NFC_SETTINGS; break;
+            case "volume": action = Build.VERSION.SDK_INT >= 29 ? Settings.Panel.ACTION_VOLUME : Settings.ACTION_SOUND_SETTINGS; break;
+            case "bluetooth": action = Settings.ACTION_BLUETOOTH_SETTINGS; break;
+            case "airplane": action = Settings.ACTION_AIRPLANE_MODE_SETTINGS; break;
+            case "location": action = Settings.ACTION_LOCATION_SOURCE_SETTINGS; break;
+            case "hotspot": action = Settings.ACTION_WIRELESS_SETTINGS; break;
+            case "data": action = Settings.ACTION_DATA_ROAMING_SETTINGS; break;
+            case "display": action = Settings.ACTION_DISPLAY_SETTINGS; break;
+            case "battery": action = Intent.ACTION_POWER_USAGE_SUMMARY; break;
+            default: action = Settings.ACTION_SETTINGS; break;
+        }
+        Intent i = new Intent(action);
+        return onMain(() -> host.startActivity(i) ? "" : "Einstellungsseite nicht verfügbar", "Öffnen fehlgeschlagen");
+    }
+
+    /** Führt einen Shell-Befehl aus (optional mit Root). Ergebnis JSON {out, err, code}. */
+    @JavascriptInterface
+    public void shell(String command, boolean root, double timeoutSec, String callbackId) {
+        new Thread(() -> {
+            JSONObject o = new JSONObject();
+            try {
+                Process p = new ProcessBuilder(root ? new String[] { "su", "-c", command } : new String[] { "sh", "-c", command }).start();
+                java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(2);
+                java.util.concurrent.Future<String> out = ex.submit(() -> readAll(p.getInputStream()));
+                java.util.concurrent.Future<String> err = ex.submit(() -> readAll(p.getErrorStream()));
+                ex.shutdown();
+                long end = System.currentTimeMillis() + (long) (Math.max(1, timeoutSec) * 1000);
+                boolean done = false;
+                while (!done && System.currentTimeMillis() < end) {
+                    try {
+                        p.exitValue();
+                        done = true;
+                    } catch (IllegalThreadStateException running) {
+                        Thread.sleep(50);
+                    }
+                }
+                if (!done) p.destroy();
+                o.put("out", out.get(2, TimeUnit.SECONDS).trim()).put("err", err.get(2, TimeUnit.SECONDS).trim()).put("code", done ? p.exitValue() : -1);
+                if (!done) o.put("error", "Zeitlimit überschritten");
+            } catch (Exception e) {
+                try {
+                    o.put("error", (root ? "Root-Befehl: " : "Befehl: ") + e.getMessage());
+                } catch (JSONException ignored) {
+                    // nicht erreichbar
+                }
+            }
+            resolve(callbackId, JSONObject.quote(o.toString()));
+        }, "Shell").start();
+    }
+
+    /** Spracheingabe über die Spracherkennung des Systems (nur mit geöffneter App). */
+    @JavascriptInterface
+    public void speechInput(String lang, String prompt, String callbackId) {
+        host.main.post(() -> {
+            Activity a = host.activity();
+            if (a == null) {
+                resolve(callbackId, "null");
+                return;
+            }
+            Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, lang.isEmpty() ? Locale.getDefault().toLanguageTag() : lang);
+            if (!prompt.isEmpty()) i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, prompt);
+            pendingSpeechCallback = callbackId;
+            try {
+                a.startActivityForResult(i, EngineHost.REQ_SPEECH);
+            } catch (Exception e) {
+                pendingSpeechCallback = null;
+                resolve(callbackId, "null");
+            }
+        });
+    }
+
+    // ============================================================ NFC & Verknüpfungen
+    /** Wartet (max. 30 s, App geöffnet) auf einen NFC-Tag und beschreibt ihn mit makrostudio://nfc/<id>. */
+    @JavascriptInterface
+    public void writeNfc(String tagId, String callbackId) {
+        host.main.post(() -> {
+            Activity a = host.activity();
+            android.nfc.NfcAdapter nfc = android.nfc.NfcAdapter.getDefaultAdapter(app);
+            if (nfc == null) {
+                resolve(callbackId, JSONObject.quote("Dieses Gerät hat kein NFC"));
+                return;
+            }
+            if (!nfc.isEnabled()) {
+                resolve(callbackId, JSONObject.quote("NFC ist ausgeschaltet"));
+                return;
+            }
+            if (a == null) {
+                resolve(callbackId, JSONObject.quote("Makro Studio muss geöffnet sein"));
+                return;
+            }
+            final boolean[] done = { false };
+            Runnable timeout = () -> {
+                if (done[0]) return;
+                done[0] = true;
+                nfc.disableReaderMode(a);
+                resolve(callbackId, JSONObject.quote("Kein Tag erkannt (Zeitlimit)"));
+            };
+            nfc.enableReaderMode(a, tag -> {
+                String err;
+                android.nfc.NdefMessage msg = new android.nfc.NdefMessage(android.nfc.NdefRecord.createUri("makrostudio://nfc/" + Uri.encode(tagId)));
+                try {
+                    android.nfc.tech.Ndef ndef = android.nfc.tech.Ndef.get(tag);
+                    if (ndef != null) {
+                        ndef.connect();
+                        if (!ndef.isWritable()) err = "Tag ist schreibgeschützt";
+                        else {
+                            ndef.writeNdefMessage(msg);
+                            err = "";
+                        }
+                        ndef.close();
+                    } else {
+                        android.nfc.tech.NdefFormatable f = android.nfc.tech.NdefFormatable.get(tag);
+                        if (f == null) err = "Tag unterstützt kein NDEF";
+                        else {
+                            f.connect();
+                            f.format(msg);
+                            f.close();
+                            err = "";
+                        }
+                    }
+                } catch (Exception e) {
+                    err = "Schreiben fehlgeschlagen: " + e.getMessage();
+                }
+                String result = err;
+                host.main.post(() -> {
+                    if (done[0]) return;
+                    done[0] = true;
+                    host.main.removeCallbacks(timeout);
+                    nfc.disableReaderMode(a);
+                    resolve(callbackId, JSONObject.quote(result));
+                });
+            }, android.nfc.NfcAdapter.FLAG_READER_NFC_A | android.nfc.NfcAdapter.FLAG_READER_NFC_B | android.nfc.NfcAdapter.FLAG_READER_NFC_F
+                    | android.nfc.NfcAdapter.FLAG_READER_NFC_V | android.nfc.NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK, null);
+            host.main.postDelayed(timeout, 30_000);
+        });
+    }
+
+    /** Legt eine Homescreen-Verknüpfung an, die den Auslöser mit der ID startet. */
+    @JavascriptInterface
+    public String pinShortcut(String id, String label) {
+        if (!androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(app)) return "Der Startbildschirm unterstützt keine Verknüpfungen";
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("makrostudio://run/" + Uri.encode(id))).setClass(app, EventActivity.class);
+        androidx.core.content.pm.ShortcutInfoCompat s = new androidx.core.content.pm.ShortcutInfoCompat.Builder(app, "run_" + id)
+                .setShortLabel(label.isEmpty() ? "Makro" : label)
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(app, R.mipmap.ic_launcher))
+                .setIntent(i)
+                .build();
+        return androidx.core.content.pm.ShortcutManagerCompat.requestPinShortcut(app, s, null) ? "" : "Verknüpfung wurde abgelehnt";
+    }
+
     void shutdown() {
         if (tts != null) tts.shutdown();
+        if (overlayView != null) {
+            try {
+                app.getSystemService(android.view.WindowManager.class).removeView(overlayView);
+            } catch (RuntimeException ignored) {
+                // bereits entfernt
+            }
+            overlayView = null;
+        }
         if (busyLock != null && busyLock.isHeld()) busyLock.release();
     }
 }

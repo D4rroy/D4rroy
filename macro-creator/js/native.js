@@ -30,6 +30,17 @@
     _battery(level, charging) { MS.device.setBattery({ level, charging }); },
     _notification(n) { MS.bus.emit('notification-posted', n); },
     _bluetooth(connected, name, address) { MS.bus.emit('bluetooth', { connected, name, address }); },
+    /** Geräte-Ereignis vom Systemmonitor (Bildschirm, Anruf, SMS, WLAN, NFC …). */
+    _event(name, data) {
+      if (name === 'shortcut') MS.bus.emit('shortcut', data.id);
+      MS.bus.emit('sys:' + name, data || {});
+    },
+    /** Nach dem Start: Ereignisse abholen, die vor dem Laden der Web-App eintrafen. */
+    ready() {
+      let list = [];
+      try { list = JSON.parse(A.engineReady()); } catch (e) { /* keine */ }
+      list.forEach(([name, data]) => this._event(name, data));
+    },
     _appChanged(pkg, label, prev) {
       MS.device.foregroundApp = pkg;
       MS.bus.emit('app-changed', { pkg, label, prev });
@@ -95,6 +106,56 @@
     },
     isDeviceLocked: () => A.isDeviceLocked(),
     sendIntent: (o) => check(A.sendIntent(o.target, o.action || '', o.data || '', o.mime || '', o.pkg || '', o.cls || '', o.category || '', Math.round(Number(o.flags) || 0), JSON.stringify(o.extras || {}))),
+
+    // ---- Systemzustand & neue Gerätefunktionen
+    deviceState() {
+      try { return JSON.parse(A.deviceState()); } catch (e) { return {}; }
+    },
+    setFlag: (key, on) => A.setFlag(key, !!on),
+    setTileLabel: (n, label) => A.setTileLabel(n, String(label || '')),
+    setWebhook: (port, token) => A.setWebhook(Math.round(Number(port) || 0), String(token || '')),
+    localIps: () => JSON.parse(A.localIps()),
+    callNumber: (number) => check(A.callNumber(String(number))),
+    callControl: (action) => check(A.callControl(action)),
+    sendSms: (number, text) => check(A.sendSms(String(number), String(text))),
+    notificationDismiss: (pkg, contains) => check(A.notificationDismiss(pkg || '', String(contains || ''))),
+    notificationPress: (pkg, contains, button) => check(A.notificationPress(pkg || '', String(contains || ''), String(button || ''))),
+    screenText() {
+      const r = JSON.parse(A.screenText());
+      if (r.error) throw new Error(r.error);
+      return r.text;
+    },
+    async ocr(region) {
+      const r = JSON.parse(await call('ocr', region || ''));
+      if (r.error) throw new Error(r.error);
+      return r.text;
+    },
+    pickFolder: () => call('pickFolder'),
+    fileOp(folder, name, op, text) {
+      const r = JSON.parse(A.fileOp(String(folder || ''), String(name || ''), op, String(text ?? '')));
+      if (r.error) throw new Error(r.error);
+      return r.text;
+    },
+    async sendMail(o) { check(await call('sendMail', JSON.stringify(o))); },
+    calendarEvents(from, to) {
+      const r = JSON.parse(A.calendarEvents(Number(from), Number(to)));
+      if (r && r.error) throw new Error(r.error);
+      return r;
+    },
+    calendarAdd: (o) => check(A.calendarAdd(String(o.title), String(o.description || ''), String(o.location || ''), Number(o.begin), Number(o.end), !!o.allDay)),
+    setWallpaper: (image, which) => check(A.setWallpaper(String(image), which)),
+    overlayText: (text, seconds, position, size, color, bg) => check(A.overlayText(String(text), Number(seconds) || 0, position, Math.round(size) || 18, color || '#ffffff', bg || '#cc000000')),
+    setSystemSetting: (name, value) => check(A.setSystemSetting(name, Math.round(value))),
+    getSystemSetting: (name) => A.getSystemSetting(name),
+    openPanel: (which) => check(A.openPanel(which)),
+    async shell(cmd, root, timeout) {
+      const r = JSON.parse(await call('shell', String(cmd), !!root, Number(timeout) || 30));
+      if (r.error && r.out === undefined) throw new Error(r.error);
+      return r;
+    },
+    speechInput: (lang, prompt) => call('speechInput', lang || '', String(prompt || '')),
+    async writeNfc(id) { check(await call('writeNfc', String(id))); },
+    pinShortcut: (id, label) => check(A.pinShortcut(String(id), String(label || ''))),
 
     // ---- Berechtigungen & Hintergrund
     permissions: () => JSON.parse(A.permissions()),

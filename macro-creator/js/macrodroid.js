@@ -102,6 +102,52 @@
 
   // ------------------------------------------------------------ Auslöser
   const TRIGGERS = {
+    // Telefon & SMS
+    IncomingCallTrigger(t, r) {
+      if ((t.m_contactList || []).length || t.m_contact) r.check('Anruf: Kontakt-/Nummernfilter bitte prüfen (als „jede Nummer“ übernommen).');
+      return make('trigger', 'call', { event: 'incoming' });
+    },
+    OutgoingCallTrigger: () => make('trigger', 'call', { event: 'outgoing' }),
+    CallEndedTrigger: () => make('trigger', 'call', { event: 'ended' }),
+    CallMissedTrigger: () => make('trigger', 'call', { event: 'missed' }),
+    CallActiveTrigger: () => make('trigger', 'call', { event: 'answered' }),
+    IncomingSMSTrigger(t, r) {
+      if ((t.m_contactList || []).length) r.check('SMS empfangen: Absenderfilter bitte prüfen.');
+      return make('trigger', 'sms_received', { contains: str(first(t.m_smsContent, t.m_textToMatch, '')) });
+    },
+    // Gerät
+    ScreenOnOffTrigger: (t) => make('trigger', 'screen', { state: t.m_screenOn === false ? 'off' : 'on' }),
+    DeviceUnlockedTrigger: () => make('trigger', 'screen', { state: 'unlocked' }),
+    HeadphonesTrigger: (t) => make('trigger', 'headphones', { state: t.m_headphonesConnected === false ? 'disconnected' : 'connected' }),
+    VolumeButtonTrigger(t, r) {
+      const o = num(first(t.m_option, t.m_volumeButtonOption), 0);
+      r.check('Lautstärketaste: Taste bitte prüfen.');
+      return make('trigger', 'volume_button', { key: o === 1 ? 'down' : o === 0 ? 'up' : 'any', consume: !!first(t.m_dontChangeVolume, t.m_blockVolumeChange, false) });
+    },
+    MusicPlayingTrigger: (t) => make('trigger', 'music_playing', { state: num(t.m_option) === 1 ? 'stop' : 'start' }),
+    NFCTrigger: (t) => make('trigger', 'nfc', { tag: str(first(t.m_tagName, t.m_tagId, 'Tag')) }),
+    DarkThemeTrigger: (t) => make('trigger', 'dark_mode', { state: num(t.m_option) === 1 ? 'light' : 'dark' }),
+    BatteryTemperatureTrigger(t, r) {
+      r.check('Akkutemperatur: Richtung bitte prüfen.');
+      return make('trigger', 'battery_temp', { value: num(first(t.m_temperature, t.m_threshold), 40), dir: num(t.m_option) === 1 ? 'below' : 'above' });
+    },
+    ApplicationInstalledRemovedTrigger: (t) => make('trigger', 'app_install', { event: num(t.m_option) === 1 ? 'removed' : 'installed' }),
+    QuickSettingsTileTrigger: (t) => make('trigger', 'quick_tile', { tile: Math.min(3, Math.max(1, num(first(t.m_tileNumber, t.m_tileId), 0) + 1)), label: str(first(t.m_tileLabel, t.m_name, '')) }),
+    WebHookTrigger: (t) => make('trigger', 'webhook', { path: str(first(t.m_identifier, t.m_name, 'makro')) }),
+    CalendarTrigger(t, r) {
+      r.check('Kalendertermin: Titel-/Kalenderfilter bitte prüfen.');
+      return make('trigger', 'calendar', { event: t.m_eventStart === false ? 'end' : 'start', title: str(first(t.m_titleText, t.m_detailText, '')) });
+    },
+    // Konnektivität
+    WifiConnectionTrigger(t, r) {
+      const list = t.m_SSIDList || t.m_ssidList || [];
+      const st = num(first(t.m_wifiState, t.m_option), 2);
+      if (st < 2) return make('trigger', 'radio_state', { radio: 'wifi_state', state: st === 0 ? 'on' : 'off' });
+      if (!list.length) r.check('WLAN-Verbindung: kein Netzwerkname – als „jedes WLAN“ übernommen.');
+      return make('trigger', 'wifi_network', { event: st === 3 ? 'disconnected' : 'connected', ssid: list.join(', ') });
+    },
+    AirplaneModeTrigger: (t) => make('trigger', 'radio_state', { radio: 'airplane', state: t.m_airplaneModeEnabled === false ? 'off' : 'on' }),
+    MobileDataTrigger: () => make('trigger', 'network_type', { type: 'mobile' }),
     TimerTrigger(t, r) {
       if (t.m_useVariable) r.check('Tageszeit nutzte eine Variable – feste Uhrzeit bitte prüfen.');
       return make('trigger', 'time', { time: pad(num(t.m_hour)) + ':' + pad(num(t.m_minute)), days: days(t.m_daysOfWeek) });
@@ -176,6 +222,25 @@
   }
 
   const CONSTRAINTS = {
+    PhoneRingingConstraint: (c) => make('constraint', 'call_state', { state: c.m_ringing === false ? 'idle' : 'ringing' }),
+    CallActiveConstraint: (c) => make('constraint', 'call_state', { state: c.m_inCall === false ? 'idle' : 'offhook' }),
+    CalendarConstraint(c, r) {
+      r.check('Kalender-Bedingung: Titel bitte prüfen.');
+      return make('constraint', 'calendar_event', { title: str(first(c.m_titleText, c.m_detailText, '')) });
+    },
+    WifiConstraint(c, r) {
+      const st = num(first(c.m_wifiState, c.m_option), 0);
+      const list = c.m_ssidList || c.m_SSIDList || [];
+      if (st === 0 || st === 1) return make('constraint', 'radio_state', { radio: 'wifi_state', state: st === 0 ? 'on' : 'off' });
+      if (!list.length) r.check('WLAN-Bedingung: kein Netzwerkname – „irgendein WLAN“ übernommen.');
+      return make('constraint', 'wifi_ssid', { state: st === 3 ? 'not' : 'connected', ssid: list.join(', ') });
+    },
+    BluetoothConstraint: (c) => make('constraint', 'radio_state', { radio: 'bt_state', state: num(c.m_btState) === 1 ? 'off' : 'on' }),
+    HeadphonesConnectionConstraint: (c) => make('constraint', 'headphones', { state: c.m_connected === false ? 'no' : 'yes' }),
+    ScreenOnOffConstraint: (c) => make('constraint', 'screen_on', { state: c.m_screenOn === false ? 'off' : 'on' }),
+    AirplaneModeConstraint: (c) => make('constraint', 'radio_state', { radio: 'airplane', state: c.m_enabled === false ? 'off' : 'on' }),
+    BatteryTemperatureConstraint: (c) => make('constraint', 'battery_temp', { op: c.m_greaterThan === false ? 'below' : 'above', value: num(c.m_temperature, 40) }),
+    MobileDataConstraint: () => make('constraint', 'network_type', { type: 'mobile' }),
     TimeOfDayConstraint: (c) => make('constraint', 'time_range', {
       from: pad(num(c.m_startHour)) + ':' + pad(num(c.m_startMinute)),
       to: pad(num(c.m_endHour)) + ':' + pad(num(c.m_endMinute)),
@@ -274,6 +339,63 @@
   const conds = (a, r, ctx) => ({ conditions: (a.m_constraintList || []).map((c) => convertConstraint(c, r, ctx)).filter(Boolean), logic: a.m_isOrCondition ? 'or' : 'and' });
 
   const ACTIONS = {
+    // Telefon & SMS
+    RejectCallAction: () => make('action', 'call_control', { action: 'end' }),
+    HangupCallAction: () => make('action', 'call_control', { action: 'end' }),
+    AnswerCallAction: () => make('action', 'call_control', { action: 'answer' }),
+    MakeCallAction: (a) => make('action', 'call_direct', { number: str(first(a.m_number, a.m_phoneNumber, '')) }),
+    SendSMSAction(a, r) {
+      if (a.m_contact && !a.m_number) r.check('SMS senden: Kontakt bitte als Nummer eintragen.');
+      return make('action', 'sms_send', { number: str(first(a.m_number, a.m_destination, '')), text: str(first(a.m_smsMessage, a.m_message, a.m_text, '')) });
+    },
+    SendEmailAction(a, r) {
+      r.check('E-Mail senden: SMTP-Server und Zugangsdaten bitte eintragen.');
+      return make('action', 'email_send', { to: str(first(a.m_email, a.m_emailAddress, '')), subject: str(a.m_subject), body: str(first(a.m_body, a.m_message, '')) });
+    },
+    // Benachrichtigungen & Bildschirm
+    ClearNotificationsAction(a) {
+      const pkgs = a.m_packageNameList || a.m_applicationList || [];
+      return make('action', 'notification_dismiss', { anyApp: !pkgs.length, app: str(pkgs[0] && (pkgs[0].m_packageName || pkgs[0])), contains: str(first(a.m_matchText, '')) });
+    },
+    NotificationInteractionAction(a, r) {
+      r.check('Benachrichtigung antippen: App/Knopf bitte prüfen.');
+      return make('action', 'notification_press', { anyApp: true, contains: str(first(a.m_matchText, a.m_text, '')), button: str(first(a.m_buttonText, '')) });
+    },
+    ReadScreenContentsAction: (a) => make('action', 'read_screen', { var: varRef(first(a.m_variable, a.variable)) }),
+    TextFromScreenAction: (a) => make('action', 'read_screen', { var: varRef(first(a.m_variable, a.variable)) }),
+    DisplayOverlayAction: (a) => make('action', 'overlay_text', { text: str(first(a.m_text, a.m_overlayText, '')) }),
+    SetWallpaperAction(a, r) {
+      r.check('Hintergrundbild: Bild bitte neu auswählen.');
+      return make('action', 'wallpaper', {});
+    },
+    SetScreenTimeoutAction(a) {
+      const secs = num(first(a.m_timeoutDelaySeconds, a.m_seconds), 60);
+      const best = [15, 30, 60, 120, 300, 600, 1800].reduce((b, v) => (Math.abs(v - secs) < Math.abs(b - secs) ? v : b), 60);
+      return make('action', 'screen_timeout', { seconds: best });
+    },
+    RotationAction: (a) => make('action', 'auto_rotate', { state: num(a.m_option) === 0 ? 'on' : num(a.m_option) === 1 ? 'off' : 'toggle' }),
+    // Nicht direkt schaltbar (Android-Einschränkung) → passendes Einstellungs-Panel öffnen
+    SetWifiAction(a, r) { r.check('WLAN schalten ist seit Android 10 nicht erlaubt – stattdessen wird das WLAN-Panel geöffnet.'); return make('action', 'settings_panel', { panel: 'wifi' }); },
+    SetBluetoothAction(a, r) { r.check('Bluetooth schalten ist nicht erlaubt – stattdessen werden die Bluetooth-Einstellungen geöffnet.'); return make('action', 'settings_panel', { panel: 'bluetooth' }); },
+    SetAirplaneModeAction(a, r) { r.check('Flugmodus schalten ist nicht erlaubt – stattdessen werden die Flugmodus-Einstellungen geöffnet.'); return make('action', 'settings_panel', { panel: 'airplane' }); },
+    SetMobileDataAction(a, r) { r.check('Mobile Daten schalten ist nicht erlaubt – stattdessen wird das Internet-Panel geöffnet.'); return make('action', 'settings_panel', { panel: 'internet' }); },
+    // Dateien, System, Variablen
+    WriteToFileAction(a, r) {
+      r.check('Datei schreiben: Ordner bitte neu auswählen.');
+      return make('action', 'file', { op: a.m_append === false ? 'write' : 'append', name: str(first(a.m_filename, a.m_fileName, 'log.txt')), text: str(first(a.m_textToWrite, a.m_text, '')) });
+    },
+    ReadFileAction(a, r) {
+      r.check('Datei lesen: Ordner bitte neu auswählen.');
+      return make('action', 'file', { op: 'read', name: str(first(a.m_filename, a.m_fileName, '')), var: varRef(first(a.m_variable, a.variable)) });
+    },
+    ShellScriptAction: (a) => make('action', 'shell', { command: str(first(a.m_script, a.m_command, '')), root: !!first(a.m_useRoot, a.m_rootMode, false), var: varRef(first(a.m_variable, a.m_outputVariable)) }),
+    JsonParseAction(a, r) {
+      r.check('JSON auswerten: Quelle und Pfad bitte prüfen.');
+      return make('action', 'json_parse', { source: str(first(a.m_jsonText, a.m_source, '')), var: varRef(first(a.m_dictionaryVar, a.m_variable)) });
+    },
+    StopWatchAction: (a) => make('action', 'stopwatch', { name: str(first(a.m_stopwatchName, a.m_name, 'Stoppuhr')), op: ['start', 'pause', 'reset'][num(a.m_option)] || 'start' }),
+    VoiceInputAction: (a) => make('action', 'speech_input', { var: varRef(first(a.m_variable, a.variable)) }),
+    AddCalendarEntryAction: (a) => make('action', 'calendar_add', { title: str(first(a.m_title, '')), location: str(first(a.m_location, '')), description: str(first(a.m_detail, a.m_description, '')) }),
     // Ablaufsteuerung
     IfConditionAction: (a, r, ctx) => make('action', 'if', conds(a, r, ctx)),
     ElseIfConditionAction: (a, r, ctx) => make('action', 'else_if', conds(a, r, ctx)),

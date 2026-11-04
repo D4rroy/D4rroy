@@ -18,7 +18,7 @@
     {
       key: 'location', title: 'Standort', icon: 'location_on',
       why: 'Für Ort-Auslöser (Geofence), die Bedingung „Ort“, die Aktion „Standort abrufen“ und Sonnenauf-/-untergang ohne festen Standort.',
-      uses: ['Geofence', 'Ort (Bedingung)', 'Standort abrufen', 'Sonnenaufgang/-untergang'],
+      uses: ['Geofence', 'Ort (Bedingung)', 'Standort abrufen', 'Sonnenaufgang/-untergang', 'WLAN-Netz (Android verrät den WLAN-Namen nur mit Standort)'],
       steps: [
         'Auf „Einrichten“ tippen und „Bei Nutzung der App“ wählen. „Genauer Standort“ eingeschaltet lassen.',
         `Manuell: ${APP} → Berechtigungen → Standort → „Nur während der Nutzung der App zulassen“ und „Genauen Standort verwenden“ einschalten.`,
@@ -56,7 +56,7 @@
     {
       key: 'accessibility', title: 'Bedienungshilfe', icon: 'accessibility_new', restricted: true,
       why: 'Erkennt, welche App gerade geöffnet ist, führt Systemaktionen und UI-Interaktionen (Tippen, Wischen, Text eingeben) aus und erlaubt, Apps aus dem Hintergrund zu öffnen. Bildschirminhalte werden nur gelesen, wenn ein Makro das verlangt, und verlassen das Gerät nie.',
-      uses: ['App geöffnet/geschlossen', 'App im Vordergrund (Bedingung)', 'Systemaktion', 'UI-Interaktion', 'Mit PIN entsperren', 'Text auf dem Bildschirm (Bedingung)', 'App starten / Website öffnen im Hintergrund'],
+      uses: ['App geöffnet/geschlossen', 'App im Vordergrund (Bedingung)', 'Systemaktion', 'Lautstärketaste gedrückt', 'Bildschirmtext auslesen', 'Texterkennung (OCR)', 'UI-Interaktion', 'Mit PIN entsperren', 'Text auf dem Bildschirm (Bedingung)', 'App starten / Website öffnen im Hintergrund'],
       steps: [
         'Auf „Einrichten“ tippen – die Seite „Bedienungshilfen“ öffnet sich.',
         '„Installierte Apps“ bzw. „Heruntergeladene Apps“ öffnen → „Makro Studio“ → einschalten → bestätigen.',
@@ -66,7 +66,7 @@
     {
       key: 'notification_listener', title: 'Benachrichtigungszugriff', icon: 'mark_chat_unread', restricted: true,
       why: 'Damit Makros auf eingehende Benachrichtigungen anderer Apps reagieren können (z. B. WhatsApp, E-Mail).',
-      uses: ['Benachrichtigung empfangen'],
+      uses: ['Benachrichtigung empfangen', 'Benachrichtigung schließen', 'Benachrichtigung antippen / Knopf drücken'],
       steps: [
         'Auf „Einrichten“ tippen – die Liste „Benachrichtigungszugriff“ öffnet sich.',
         '„Makro Studio“ antippen → „Benachrichtigungszugriff zulassen“ einschalten → bestätigen.',
@@ -84,6 +84,37 @@
       ],
     },
     {
+      key: 'phone', title: 'Telefon & Anrufliste', icon: 'call',
+      why: 'Damit Makros Anrufe erkennen (mit Rufnummer), direkt anrufen und Anrufe annehmen oder beenden können.',
+      uses: ['Anruf (Auslöser)', 'Telefonstatus (Bedingung)', 'Direkt anrufen', 'Anruf annehmen/beenden'],
+      restricted: true,
+      steps: [
+        'Auf „Einrichten“ tippen und die Abfragen „Telefon“ und „Anrufliste“ mit „Zulassen“ beantworten.',
+        `Manuell: ${APP} → Berechtigungen → Telefon bzw. Anrufliste → „Zulassen“.`,
+        'Ist „Anrufliste“ ausgegraut oder erscheint keine Abfrage, siehe „Eingeschränkte Einstellungen freigeben“.',
+      ],
+    },
+    {
+      key: 'sms', title: 'SMS', icon: 'sms',
+      why: 'Damit Makros auf eingehende SMS reagieren und SMS direkt versenden können.',
+      uses: ['SMS empfangen', 'SMS senden'],
+      restricted: true,
+      steps: [
+        'Auf „Einrichten“ tippen und „Zulassen“ wählen.',
+        `Manuell: ${APP} → Berechtigungen → SMS → „Zulassen“.`,
+        'Ist der Schalter ausgegraut („Eingeschränkte Einstellung“), siehe „Eingeschränkte Einstellungen freigeben“.',
+      ],
+    },
+    {
+      key: 'calendar', title: 'Kalender', icon: 'event',
+      why: 'Damit Makros zu Terminbeginn/-ende auslösen, laufende Termine prüfen und Termine anlegen können.',
+      uses: ['Kalendertermin beginnt/endet', 'Termin läuft gerade', 'Kalendertermin anlegen'],
+      steps: [
+        'Auf „Einrichten“ tippen und „Zulassen“ wählen.',
+        `Manuell: ${APP} → Berechtigungen → Kalender → „Zulassen“.`,
+      ],
+    },
+    {
       key: 'dnd', title: '„Bitte nicht stören“-Zugriff', icon: 'do_not_disturb_on',
       why: 'Erlaubt Makros, „Bitte nicht stören“ zu schalten und das Telefon lautlos zu stellen.',
       uses: ['Nicht stören', 'Klingelmodus (Lautlos)', 'Lautstärke (Klingelton auf 0)'],
@@ -94,8 +125,8 @@
     },
     {
       key: 'write_settings', title: 'Systemeinstellungen ändern', icon: 'brightness_6',
-      why: 'Wird für die Aktion „Bildschirmhelligkeit“ benötigt.',
-      uses: ['Bildschirmhelligkeit'],
+      why: 'Wird für „Bildschirmhelligkeit“, „Bildschirm-Timeout“ und „Automatisch drehen“ benötigt.',
+      uses: ['Bildschirmhelligkeit', 'Bildschirm-Timeout', 'Automatisch drehen'],
       steps: [
         'Auf „Einrichten“ tippen → „Änderung von Systemeinstellungen zulassen“ einschalten.',
         'Manuell: Einstellungen → Apps → Spezieller App-Zugriff → Systemeinstellungen ändern → Makro Studio.',
@@ -104,7 +135,7 @@
     {
       key: 'overlay', title: 'Über anderen Apps einblenden', icon: 'layers',
       why: 'Android erlaubt Apps im Hintergrund nicht, andere Apps zu öffnen. Mit dieser Berechtigung (oder der Bedienungshilfe) klappen „App starten“, „Website öffnen“, „Anrufen“ usw. auch, wenn Makro Studio nicht sichtbar ist.',
-      uses: ['App starten', 'Website öffnen', 'Anrufen / SMS / E-Mail', 'Navigation starten'],
+      uses: ['App starten', 'Website öffnen', 'Anrufen / SMS / E-Mail', 'Navigation starten', 'Text einblenden', 'Einstellungs-Panel öffnen'],
       steps: [
         'Auf „Einrichten“ tippen → „Makro Studio“ → „Über anderen Apps einblenden“ erlauben.',
         'Manuell: Einstellungen → Apps → Spezieller App-Zugriff → Über anderen Apps einblenden → Makro Studio.',
@@ -128,7 +159,7 @@
       'Die Daueranzeige kann man in den Benachrichtigungseinstellungen unter „Hintergrunddienst“ stumm schalten, aber nicht entfernen – Android verlangt sie für Hintergrunddienste.',
     ],
     restricted: [
-      'Ab Android 13 sperrt Android die Bedienungshilfe und den Benachrichtigungszugriff für Apps, die nicht aus einem App-Store stammen. Der Schalter ist dann ausgegraut.',
+      'Ab Android 13 sperrt Android die Bedienungshilfe und den Benachrichtigungszugriff (ab Android 15 auch SMS und Anrufliste) für Apps, die nicht aus einem App-Store stammen. Der Schalter ist dann ausgegraut.',
       'Zuerst einmal versuchen, die Einstellung einzuschalten (die Meldung „Eingeschränkte Einstellung“ erscheint).',
       `Dann: ${APP} → oben rechts Menü (⋮) → „Eingeschränkte Einstellungen zulassen“ → mit PIN/Fingerabdruck bestätigen.`,
       'Danach die Bedienungshilfe bzw. den Benachrichtigungszugriff erneut einschalten.',
@@ -142,7 +173,9 @@
     ],
     limits: [
       'WLAN, mobile Daten, Bluetooth oder Flugmodus dürfen normale Apps seit Android 10 nicht mehr selbst schalten.',
-      'SMS lesen und Anrufe erkennen ist Apps außerhalb des Play Stores praktisch nicht erlaubt und daher nicht enthalten.',
+      'Stattdessen öffnet die Aktion „Einstellungs-Panel öffnen“ das passende Schnell-Panel; per „UI-Interaktion“ kann der Schalter danach angetippt werden.',
+      'Kamera und Mikrofon dürfen Apps im Hintergrund nicht nutzen; „Spracheingabe“ funktioniert daher nur bei geöffneter App.',
+      'Lautstärketasten meldet Android bei ausgeschaltetem Bildschirm je nach Hersteller nicht.',
       'Wird Makro Studio in der App-Übersicht weggewischt, läuft der Hintergrunddienst weiter. Über „Beenden erzwingen“ wird er gestoppt, bis die App wieder geöffnet wird.',
     ],
   };
