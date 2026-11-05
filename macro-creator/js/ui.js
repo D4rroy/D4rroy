@@ -214,16 +214,72 @@
   ui.KIND_INFO = KIND_INFO;
 
   /** Vollbild-Auswahl mit Kategorien und Suche → Typ oder null. */
-  ui.pick = function (kind) {
+  ui.pick = function (kind, { quick, onChange } = {}) {
     const map = MS.catalog.map(kind);
     const cats = MS.catalog.categories[kind];
     const color = KIND_INFO[kind].color;
+    // Reiter „Schnellregister“: gespeicherte, fertig eingestellte Aktionen dieses Makros
+    let tab = 'all';
+    try { if (quick && quick.length && localStorage.getItem('makrostudio.pickTab') === 'quick') tab = 'quick'; } catch (e) { /* egal */ }
     return ui.modal({
       title: KIND_INFO[kind].title,
       variant: 'full',
       content: (close) => {
         const list = h('div', { class: 'picker-list' });
         const search = h('input', { class: 'input search', type: 'search', placeholder: 'Suchen …', 'aria-label': 'Suchen' });
+        const tabs = quick ? h('div', { class: 'pick-tabs', role: 'tablist' }) : null;
+        const drawTabs = () => {
+          if (!tabs) return;
+          tabs.replaceChildren(
+            h('button', { class: 'pick-tab' + (tab === 'all' ? ' on' : ''), type: 'button', role: 'tab', onclick: () => setTab('all') }, icon('apps'), 'Alle Aktionen'),
+            h('button', { class: 'pick-tab' + (tab === 'quick' ? ' on' : ''), type: 'button', role: 'tab', onclick: () => setTab('quick') }, icon('bookmarks'), `Schnellregister (${quick.length})`));
+        };
+        const setTab = (t) => {
+          tab = t;
+          try { localStorage.setItem('makrostudio.pickTab', t); } catch (e) { /* egal */ }
+          drawTabs();
+          render();
+        };
+        const quickMenu = async (q) => {
+          const r = await ui.sheet(q.name, [
+            { icon: 'edit', label: 'Umbenennen', value: 'rename' },
+            { icon: 'arrow_upward', label: 'Nach oben', value: 'up', hidden: quick.indexOf(q) === 0 },
+            { icon: 'delete', label: 'Aus Schnellregister entfernen', value: 'del', danger: true },
+          ], quickDesc(q));
+          const i = quick.indexOf(q);
+          if (r === 'rename') {
+            const n = await ui.prompt('Umbenennen', '', q.name);
+            if (n && n.trim()) q.name = n.trim();
+          } else if (r === 'up' && i > 0) [quick[i - 1], quick[i]] = [quick[i], quick[i - 1]];
+          else if (r === 'del') quick.splice(i, 1);
+          else return;
+          if (onChange) onChange();
+          drawTabs();
+          render();
+        };
+        const quickDesc = (q) => {
+          const first = q.items[0];
+          const n = q.items.filter((a) => !['end_if', 'end_loop', 'end_group'].includes(a.type)).length;
+          return first ? MS.catalog.describe('action', first) + (n > 1 ? ` · ${n} Aktionen` : '') : '';
+        };
+        const renderQuick = (qtext) => {
+          const hits = quick.filter((q) => !qtext || (q.name + ' ' + quickDesc(q)).toLowerCase().includes(qtext));
+          if (!quick.length) {
+            list.append(h('div', { class: 'empty' }, h('p', null, 'Das Schnellregister dieses Makros ist leer.'),
+              h('p', { class: 'field-hint' }, 'Im Makro bei einer Aktion auf ⋮ → „Zum Schnellregister hinzufügen“ tippen. Die Aktion wird mit allen Einstellungen gespeichert, z. B. ein fertig eingestellter Klick auf einen Knopf.')));
+            return;
+          }
+          list.append(hits.length ? h('div', { class: 'card list quick-list' }, hits.map((q) => {
+            const first = q.items[0];
+            const d = first && MS.catalog.actions[first.type];
+            return h('div', { class: 'var-row quick-row', role: 'button', tabindex: '0', onclick: () => close({ quick: q }) },
+              h('span', { class: 'item-icon-wrap' + (first && first.label ? ' has-label' : '') },
+                first && first.label ? h('span', { class: 'item-label' }, first.label) : null,
+                h('span', { class: 'item-icon', style: { background: d && d.flow ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help'))),
+              h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, q.name), h('div', { class: 'item-sub' }, quickDesc(q))),
+              h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Optionen', onclick: (e) => { e.stopPropagation(); quickMenu(q); } }, icon('more_vert')));
+          })) : h('p', { class: 'empty' }, 'Nichts gefunden.'));
+        };
         const tile = (d) => {
           const ok = MS.catalog.supported(d);
           return h('button', { class: 'pick-tile' + (ok ? '' : ' unsupported'), type: 'button', onclick: () => close(d.type), title: d.help || d.name },
@@ -234,6 +290,7 @@
         const render = () => {
           const q = search.value.trim().toLowerCase();
           list.replaceChildren();
+          if (tab === 'quick') { renderQuick(q); return; }
           if (q) {
             const hits = Object.values(map).filter((d) => (d.name + ' ' + (d.help || '')).toLowerCase().includes(q));
             list.append(hits.length ? h('div', { class: 'pick-grid' }, hits.map(tile)) : h('p', { class: 'empty' }, 'Nichts gefunden.'));
@@ -254,8 +311,9 @@
           }
         };
         search.addEventListener('input', render);
+        drawTabs();
         render();
-        return h('div', { class: 'picker' }, search, list);
+        return h('div', { class: 'picker' }, ...[tabs, search, list].filter(Boolean));
       },
     });
   };

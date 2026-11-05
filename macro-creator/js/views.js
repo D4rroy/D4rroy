@@ -459,7 +459,9 @@
           'aria-label': item.collapsed ? 'Block ausklappen' : 'Block einklappen', title: item.collapsed ? 'Ausklappen' : 'Einklappen',
           onclick: (e) => { e.stopPropagation(); toggleCollapse(item); draw(); },
         }, icon(item.collapsed ? 'chevron_right' : 'expand_more')) : null,
-        h('span', { class: 'item-icon', style: { background: isFlow || item.type === 'group' ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help')),
+        h('span', { class: 'item-icon-wrap' + (item.label ? ' has-label' : '') },
+          item.label ? h('span', { class: 'item-label', title: item.label }, item.label) : null,
+          h('span', { class: 'item-icon', style: { background: isFlow || item.type === 'group' ? 'var(--flow)' : color } }, icon(d ? d.icon : 'help'))),
         h('div', { class: 'item-text' },
           h('div', { class: 'item-title' }, item.invert ? h('span', { class: 'badge' }, 'NICHT') : null, d ? d.name : 'Unbekannt: ' + item.type, d && !MS.catalog.supported(d) ? h('span', { class: 'badge warn', title: 'Hier nicht verfügbar' }, '!') : null,
             ui.missingPermissions(d).length ? h('span', { class: 'badge perm', title: 'Berechtigung fehlt' }, 'Berechtigung fehlt') : null),
@@ -481,9 +483,11 @@
         { icon: 'arrow_downward', label: 'Nach unten', value: 'down', hidden: (kindName === 'action' && item.collapsed ? MS.engine.blockEnd(list, index) : index) >= list.length - 1 },
         { icon: 'block', label: item.invert ? 'Umkehrung aufheben' : 'Umkehren (NICHT)', value: 'invert', hidden: kindName !== 'constraint' },
         { icon: item.enabled === false ? 'toggle_on' : 'toggle_off', label: item.enabled === false ? 'Aktivieren' : 'Deaktivieren', value: 'toggle', hidden: isFlow },
+        { icon: 'label', label: item.label ? 'Label ändern' : 'Label hinzufügen', value: 'label', hidden: kindName !== 'action' || ['end_if', 'end_loop', 'end_group', 'else'].includes(item.type) },
+        { icon: 'bookmark_add', label: 'Zum Schnellregister hinzufügen', value: 'quick', hidden: kindName !== 'action' || ['end_if', 'end_loop', 'end_group', 'else', 'else_if'].includes(item.type) },
         { icon: 'content_copy', label: 'Duplizieren', value: 'dup', hidden: isFlow },
         { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
-      ], MS.catalog.describe(kindName, item));
+      ], (item.label ? `[${item.label}] ` : '') + MS.catalog.describe(kindName, item));
       switch (r) {
         case 'edit': {
           const np = await ui.configure(kindName, item, formCtx());
@@ -507,6 +511,13 @@
           else [list[index + 1], list[index]] = [list[index], list[index + 1]];
           break;
         case 'collapse': toggleCollapse(item); break;
+        case 'label': {
+          const v = await ui.prompt(item.label ? 'Label ändern' : 'Label hinzufügen', 'Kurzer Name, der über dem Symbol steht (leer = entfernen), z. B. „std.interv.“', item.label || '');
+          if (v === null) return;
+          if (v.trim()) item.label = v.trim(); else delete item.label;
+          break;
+        }
+        case 'quick': await addToQuick(item, index, list); return;
         case 'invert': item.invert = !item.invert; break;
         case 'toggle': item.enabled = item.enabled === false; break;
         case 'dup': list.splice(index + 1, 0, Object.assign(clone(item), { id: uid() })); break;
@@ -549,9 +560,32 @@
       [...remove].sort((a, b) => b - a).forEach((i) => list.splice(i, 1));
     }
 
+    /** Aktion (bei Wenn/Schleife/Gruppe der ganze Block) mit ihren Einstellungen im Schnellregister dieses Makros speichern. */
+    async function addToQuick(item, index, list) {
+      const end = MS.engine.isOpener(item) ? MS.engine.blockEnd(list, index) : index;
+      const d = MS.catalog.get('action', item.type);
+      const def = item.label || (d ? d.name : item.type);
+      const name = await ui.prompt('Zum Schnellregister', 'Name im Schnellregister', def);
+      if (name === null) return;
+      draft.quick = draft.quick || [];
+      draft.quick.push({ id: uid(), name: name.trim() || def, items: clone(list.slice(index, end + 1)).map((a) => Object.assign(a, { collapsed: undefined })) });
+      draw();
+      ui.toast(`„${name.trim() || def}“ im Schnellregister gespeichert`, 2000, 'bookmark_added');
+    }
+
     async function addItem(kindName, at) {
-      const type = await ui.pick(kindName);
+      const type = await ui.pick(kindName, kindName === 'action' ? { quick: (draft.quick = draft.quick || []), onChange: draw } : undefined);
       if (!type) return;
+      if (typeof type === 'object' && type.quick) {
+        // Gespeicherte Aktion(en) mit allen Einstellungen einfügen – neue IDs, damit sie unabhängig sind
+        const list = draft.actions;
+        const pos = at === undefined ? list.length : at;
+        const items = clone(type.quick.items).map((a) => Object.assign(a, { id: uid() }));
+        list.splice(pos, 0, ...items);
+        draw();
+        ui.toast(`„${type.quick.name}“ eingefügt`, 1600, 'bookmark');
+        return;
+      }
       const item = MS.catalog.create(kindName, type);
       const np = await ui.configure(kindName, item, formCtx());
       if (!np) return;
