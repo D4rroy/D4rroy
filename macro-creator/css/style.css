@@ -349,12 +349,14 @@ select.input { appearance: auto; }
 .overlay.open .dialog { transform: none; opacity: 1; }
 .dialog-head { display: flex; align-items: center; gap: 6px; padding: 20px 22px 8px; }
 .dialog-head h2 { font-size: 20px; }
-.dialog-body { padding: 4px 22px 8px; overflow-y: auto; flex: 1; }
+.dialog-body { padding: 4px 22px 8px; overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+html.modal-open, html.modal-open body { overflow: hidden; overscroll-behavior: none; }
+.overlay { overscroll-behavior: contain; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 18px 18px; }
 .dialog-text { margin: 0 0 8px; white-space: pre-wrap; color: var(--text-2); }
 .dialog-help { margin: 0 0 14px; font-size: 14px; color: var(--text-2); }
 .overlay-sheet { align-items: flex-end; padding: 0; }
-.dialog-sheet { max-width: 560px; border-radius: 22px 22px 0 0; transform: translateY(40px); padding-bottom: env(safe-area-inset-bottom); }
+.dialog-sheet { max-width: 560px; max-height: 85vh; border-radius: 22px 22px 0 0; transform: translateY(40px); padding-bottom: env(safe-area-inset-bottom); }
 .dialog-sheet .dialog-body { padding: 8px 0 12px; }
 .sheet-head { display: flex; flex-direction: column; padding: 8px 22px 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .sheet-head::before { content: ""; width: 36px; height: 4px; border-radius: 4px; background: var(--line); align-self: center; margin-bottom: 12px; }
@@ -487,3 +489,15 @@ select.input { appearance: auto; }
 }
 .collapsed-row:hover { background: var(--surface-3); }
 .collapsed-row .mi { font-size: 18px; font-style: normal; }
+
+/* ------------------------------------------------------- Wörterbuch-Editor */
+.dict-editor { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+.dict-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dict-path .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dict-path .chip .mi { font-size: 18px; }
+.dict-sep { color: var(--text-2); font-size: 18px; }
+.dict-row { padding: 10px 6px 10px 14px; }
+.dict-row .item-text { min-width: 0; }
+.dict-row .item-title { overflow-wrap: anywhere; }
+.dict-row .var-value { max-width: 38%; }
+.dict-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

@@ -620,7 +620,7 @@
             h('span', { class: 'item-icon', style: { background: 'var(--localvar)' } }, icon(varIcon(v.type))),
             h('div', { class: 'item-text' },
               h('div', { class: 'item-title' }, v.name, isBlock && v.io && v.io !== 'none' ? h('span', { class: 'badge io' }, IO[v.io]) : null),
-              h('div', { class: 'item-sub' }, `${MS.vars.TYPES[v.type]} · ${MS.vars.format(v.value) || '(leer)'}`)),
+              h('div', { class: 'item-sub' }, `${MS.vars.TYPES[v.type]} · ${v.type === 'dictionary' ? ui.dictSummary(v.value) : MS.vars.format(v.value) || '(leer)'}`)),
             icon('more_vert', 'item-more'))))
           : h('p', { class: 'sec-empty' }, isBlock ? 'Variablen als Eingabe/Ausgabe markieren, um Werte zu übergeben.' : 'Lokale Variablen gelten nur in diesem Makro ({lv=name}).'));
     }
@@ -799,19 +799,24 @@
           listBox.replaceChildren(h('div', { class: 'card list' }, vars.map((v) => h('div', { class: 'var-row', role: 'button', tabindex: '0', onclick: () => varMenu(v) },
             h('span', { class: 'item-icon', style: { background: 'var(--localvar)' } }, icon(varIcon(v.type))),
             h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, v.name), h('div', { class: 'item-sub' }, MS.vars.TYPES[v.type])),
-            h('span', { class: 'var-value' + (v.type === 'boolean' ? (v.value ? ' true' : ' false') : '') }, MS.vars.format(v.value) || '—')))));
+            h('span', { class: 'var-value' + (v.type === 'boolean' ? (v.value ? ' true' : ' false') : '') }, v.type === 'dictionary' ? ui.dictSummary(v.value) : MS.vars.format(v.value) || '—')))));
         }, ['vars', 'store']);
       },
       destroy() { off && off(); },
     };
     async function varMenu(v) {
       const r = await ui.sheet(v.name, [
-        { icon: 'edit_note', label: 'Wert ändern', value: 'value', hidden: v.type === 'boolean' },
+        { icon: 'menu_book', label: 'Einträge anzeigen/bearbeiten', value: 'dict', hidden: v.type !== 'dictionary' },
+        { icon: 'edit_note', label: 'Wert ändern', value: 'value', hidden: v.type === 'boolean' || v.type === 'dictionary' },
         { icon: 'toggle_on', label: 'Umschalten', value: 'toggle', hidden: v.type !== 'boolean' },
         { icon: 'edit', label: 'Bearbeiten', value: 'edit' },
         { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
-      ], `${MS.vars.TYPES[v.type]} · ${MS.vars.format(v.value)}`);
+      ], `${MS.vars.TYPES[v.type]} · ${v.type === 'dictionary' ? ui.dictSummary(v.value) : MS.vars.format(v.value)}`);
       const ref = 'g:' + v.name;
+      if (r === 'dict') {
+        const res = await ui.dictEditor(v.value, v.name);
+        if (res) MS.vars.set(ref, res);
+      }
       if (r === 'toggle') MS.vars.set(ref, !v.value);
       if (r === 'value') {
         const nv = await ui.prompt(v.name, 'Neuer Wert', MS.vars.format(v.value), v.type === 'string' ? 'text' : 'number');

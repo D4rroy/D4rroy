@@ -72,6 +72,7 @@
         done = true;
         overlay.classList.remove('open');
         stack.splice(stack.indexOf(entry), 1);
+        if (!stack.length) document.documentElement.classList.remove('modal-open');
         setTimeout(() => overlay.remove(), 180);
         resolve(val === undefined ? null : val);
       };
@@ -98,6 +99,9 @@
       overlay.addEventListener('mousedown', (e) => { if (e.target === overlay && dismissible) close(null); });
       document.body.append(overlay);
       stack.push(entry);
+      // Hintergrund nicht mitscrollen, solange ein Dialog offen ist
+      document.documentElement.classList.add('modal-open');
+      if (variant === 'sheet' && dismissible) sheetDrag(dialog, overlay, close);
       requestAnimationFrame(() => {
         overlay.classList.add('open');
         const first = dialog.querySelector('[autofocus], input:not([type=checkbox]), textarea');
@@ -106,6 +110,52 @@
       if (onOpen) onOpen(close, dialog);
     });
   };
+
+  /** Bottom-Sheet mit dem Finger herunterziehen zum Schließen (wie bei Android üblich). */
+  function sheetDrag(dialog, overlay, close) {
+    const body = () => dialog.querySelector('.dialog-body');
+    let startY = null, startT = 0, dy = 0, dragging = false;
+    dialog.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const b = body();
+      // Nur ziehen, wenn die Liste ganz oben ist (sonst scrollt die Liste im Sheet)
+      if (b && b.scrollTop > 0 && !e.target.closest('.sheet-head')) { startY = null; return; }
+      startY = e.touches[0].clientY;
+      startT = Date.now();
+      dy = 0;
+      dragging = false;
+    }, { passive: true });
+    dialog.addEventListener('touchmove', (e) => {
+      if (startY === null) return;
+      dy = e.touches[0].clientY - startY;
+      if (!dragging && dy > 6) dragging = true;
+      if (!dragging) return;
+      e.preventDefault();
+      dialog.style.transition = 'none';
+      dialog.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      overlay.style.background = `rgba(10, 15, 22, ${0.5 * Math.max(0, 1 - dy / (dialog.offsetHeight || 400))})`;
+    }, { passive: false });
+    const end = () => {
+      if (startY === null) return;
+      const fast = dy > 40 && Date.now() - startT < 250;
+      startY = null;
+      if (!dragging) return;
+      dialog.style.transition = '';
+      overlay.style.background = '';
+      if (dy > Math.min(140, (dialog.offsetHeight || 400) * 0.3) || fast) {
+        dialog.style.transform = 'translateY(100%)';
+        close(null);
+      } else {
+        dialog.style.transform = '';
+      }
+      // Den Klick nach dem Ziehen nicht als Auswahl werten
+      const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      dialog.addEventListener('click', stop, { capture: true, once: true });
+      setTimeout(() => dialog.removeEventListener('click', stop, { capture: true }), 350);
+    };
+    dialog.addEventListener('touchend', end);
+    dialog.addEventListener('touchcancel', end);
+  }
 
   /** Schließt den obersten Dialog (für die Android-Zurück-Taste). */
   ui.closeTop = () => {
@@ -229,6 +279,176 @@
 
   // --------------------------------------------------------- Variablen
   /** Dialog zum Anlegen/Bearbeiten einer Variable. */
+  // ------------------------------------------------- Wörterbuch-Editor
+  const DICT_TYPES = [['string', 'Text'], ['integer', 'Ganzzahl'], ['decimal', 'Dezimalzahl'], ['boolean', 'Boolesch'], ['dictionary', 'Wörterbuch'], ['array', 'Liste']];
+  const typeOfValue = (v) => (Array.isArray(v) ? 'array' : v !== null && typeof v === 'object' ? 'dictionary'
+    : typeof v === 'boolean' ? 'boolean' : typeof v === 'number' ? (Number.isInteger(v) ? 'integer' : 'decimal') : 'string');
+  const dictIcon = { string: 'text_fields', integer: 'tag', decimal: 'percent', boolean: 'toggle_on', dictionary: 'menu_book', array: 'format_list_numbered' };
+  const isContainer = (v) => v !== null && typeof v === 'object';
+  const entriesOf = (v) => (Array.isArray(v) ? v.map((x, i) => [String(i + 1), x]) : Object.entries(v || {}));
+  /** Kurzbeschreibung eines Werts: „3 Einträge“ statt des ganzen Wörterbuchs. */
+  ui.dictSummary = (v) => {
+    if (!isContainer(v)) return v === '' ? '(leer)' : String(v);
+    const n = entriesOf(v).length;
+    return `${n} ${n === 1 ? 'Eintrag' : 'Einträge'}`;
+  };
+
+  /** Dialog für einen einzelnen Eintrag → { key, value } oder null. */
+  async function dictEntryDialog({ key = '', value = '', isArray = false, taken = [], title }) {
+    const err = h('div', { class: 'field-error' });
+    const keyIn = h('input', { class: 'input', value: key, placeholder: 'Schlüssel', autocapitalize: 'off', spellcheck: 'false' });
+    const typeSel = h('select', { class: 'input' }, DICT_TYPES.map(([k, l]) => h('option', { value: k }, l)));
+    typeSel.value = typeOfValue(value);
+    const valueBox = h('div');
+    let input = null;
+    const renderValue = () => {
+      const t = typeSel.value;
+      if (t === 'dictionary' || t === 'array') {
+        input = null;
+        valueBox.replaceChildren(h('p', { class: 'field-hint' }, 'Einträge danach durch Antippen öffnen und bearbeiten.'));
+        return;
+      }
+      if (t === 'boolean') {
+        input = h('select', { class: 'input' }, h('option', { value: 'true' }, 'Wahr (true)'), h('option', { value: 'false' }, 'Falsch (false)'));
+        input.value = String(value === true || value === 'true');
+      } else {
+        input = h('input', { class: 'input', type: t === 'string' ? 'text' : 'number', step: t === 'integer' ? '1' : 'any', value: isContainer(value) ? '' : String(value ?? '') });
+      }
+      valueBox.replaceChildren(field('Wert', input));
+    };
+    typeSel.addEventListener('change', renderValue);
+    renderValue();
+    const ok = await ui.modal({
+      title: title || (key ? 'Eintrag bearbeiten' : 'Neuer Eintrag'),
+      content: h('div', { class: 'form' }, isArray ? null : field('Schlüssel', keyIn), field('Typ', typeSel), valueBox, err),
+      buttons: [
+        { label: 'Abbrechen', value: false },
+        { label: 'OK', primary: true, value: true, validate: () => {
+          const k = keyIn.value.trim();
+          if (!isArray && !k) { err.textContent = 'Bitte einen Schlüssel eingeben.'; return false; }
+          if (!isArray && k !== key && taken.includes(k)) { err.textContent = 'Diesen Schlüssel gibt es schon.'; return false; }
+          return true;
+        } },
+      ],
+    });
+    if (!ok) return null;
+    const t = typeSel.value;
+    let v;
+    if (t === 'dictionary') v = typeOfValue(value) === 'dictionary' ? value : {};
+    else if (t === 'array') v = Array.isArray(value) ? value : [];
+    else v = MS.vars.coerce(t, input.value);
+    return { key: keyIn.value.trim(), value: v };
+  }
+
+  /**
+   * Wörterbuch wie in MacroDroid bearbeiten: Einträge als Liste, verschachtelte Einträge
+   * per Antippen öffnen, Einträge hinzufügen, ändern, umbenennen und löschen.
+   * Gibt das geänderte Wörterbuch zurück oder null bei Abbruch.
+   */
+  ui.dictEditor = function (value, title = 'Wörterbuch') {
+    const root = { v: MS.util.clone(isContainer(value) ? value : {}) };
+    const path = [];
+    const current = () => path.reduce((o, k) => (Array.isArray(o) ? o[Number(k) - 1] : o[k]), root.v);
+    const box = h('div', { class: 'dict-editor' });
+    let closeFn;
+    const setEntry = (container, oldKey, key, v) => {
+      if (Array.isArray(container)) {
+        if (oldKey) container[Number(oldKey) - 1] = v; else container.push(v);
+        return;
+      }
+      if (oldKey && oldKey !== key) {
+        // Reihenfolge beibehalten, nur den Schlüssel tauschen
+        const entries = Object.entries(container).map(([k, x]) => (k === oldKey ? [key, v] : [k, x]));
+        Object.keys(container).forEach((k) => delete container[k]);
+        entries.forEach(([k, x]) => { container[k] = x; });
+      } else container[key] = v;
+    };
+    const removeEntry = (container, key) => {
+      if (Array.isArray(container)) container.splice(Number(key) - 1, 1);
+      else delete container[key];
+    };
+    async function editEntry(key, v) {
+      const cur = current();
+      const res = await dictEntryDialog({ key, value: v, isArray: Array.isArray(cur), taken: Object.keys(cur) });
+      if (!res) return;
+      setEntry(cur, key, Array.isArray(cur) ? key : res.key, res.value);
+      draw();
+    }
+    async function entryMenu(key, v) {
+      const r = await ui.sheet(key, [
+        { icon: 'folder_open', label: 'Öffnen', value: 'open', hidden: !isContainer(v) },
+        { icon: 'edit', label: isContainer(v) ? 'Umbenennen / Typ ändern' : 'Bearbeiten', value: 'edit' },
+        { icon: 'content_copy', label: 'Wert kopieren', value: 'copy', hidden: isContainer(v) },
+        { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
+      ], isContainer(v) ? ui.dictSummary(v) : String(v));
+      if (r === 'open') { path.push(key); draw(); }
+      if (r === 'edit') editEntry(key, v);
+      if (r === 'copy') { if (MS.native.available) MS.native.copy(String(v)); else navigator.clipboard && navigator.clipboard.writeText(String(v)).catch(() => {}); ui.toast('Kopiert'); }
+      if (r === 'del' && await ui.confirm('Eintrag löschen?', `„${key}“${isContainer(v) ? ' mit allen Untereinträgen' : ''} wird gelöscht.`, 'Löschen', 'Abbrechen', true)) {
+        removeEntry(current(), key);
+        draw();
+      }
+    }
+    async function editJson() {
+      const ta = h('textarea', { class: 'input mono', rows: 14, spellcheck: 'false', value: JSON.stringify(current(), null, 2) });
+      const err = h('div', { class: 'field-error' });
+      let parsed;
+      const ok = await ui.modal({
+        title: 'Als JSON bearbeiten',
+        content: h('div', null, ta, err),
+        buttons: [{ label: 'Abbrechen', value: false }, { label: 'Übernehmen', primary: true, value: true, validate: () => {
+          try { parsed = JSON.parse(ta.value); } catch (e) { err.textContent = 'Kein gültiges JSON: ' + e.message; return false; }
+          if (!isContainer(parsed)) { err.textContent = 'Bitte ein Objekt { … } oder eine Liste [ … ] eingeben.'; return false; }
+          return true;
+        } }],
+      });
+      if (!ok) return;
+      if (!path.length) root.v = parsed;
+      else {
+        const parentPath = path.slice(0, -1);
+        const parent = parentPath.reduce((o, k) => (Array.isArray(o) ? o[Number(k) - 1] : o[k]), root.v);
+        setEntry(parent, path[path.length - 1], path[path.length - 1], parsed);
+      }
+      draw();
+    }
+    function draw() {
+      const cur = current();
+      const list = entriesOf(cur);
+      const crumbs = h('div', { class: 'dict-path' },
+        h('button', { class: 'chip' + (path.length ? '' : ' on'), type: 'button', onclick: () => { path.length = 0; draw(); } }, icon('menu_book'), title),
+        path.map((k, i) => [icon('chevron_right', 'dict-sep'),
+          h('button', { class: 'chip' + (i === path.length - 1 ? ' on' : ''), type: 'button', onclick: () => { path.length = i + 1; draw(); } }, k)]));
+      box.replaceChildren(
+        crumbs,
+        list.length
+          ? h('div', { class: 'card list dict-list' }, list.map(([k, v]) => {
+            const t = typeOfValue(v);
+            return h('div', { class: 'var-row dict-row', role: 'button', tabindex: '0',
+              onclick: () => (isContainer(v) ? (path.push(k), draw()) : editEntry(k, v)) },
+            h('span', { class: 'item-icon', style: { background: isContainer(v) ? 'var(--action)' : 'var(--localvar)' } }, icon(dictIcon[t])),
+            h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, Array.isArray(cur) ? `[${k}]` : k),
+              h('div', { class: 'item-sub' }, DICT_TYPES.find((x) => x[0] === t)[1] + (isContainer(v) ? ' · ' + ui.dictSummary(v) : ''))),
+            isContainer(v) ? null : h('span', { class: 'var-value' + (t === 'boolean' ? (v ? ' true' : ' false') : '') }, String(v) === '' ? '—' : String(v)),
+            h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Optionen', onclick: (e) => { e.stopPropagation(); entryMenu(k, v); } }, icon('more_vert')));
+          }))
+          : h('p', { class: 'sec-empty' }, Array.isArray(cur) ? 'Die Liste ist leer.' : 'Das Wörterbuch ist leer.'),
+        h('div', { class: 'dict-actions' },
+          path.length ? h('button', { class: 'btn btn-text', type: 'button', onclick: () => { path.pop(); draw(); } }, icon('arrow_upward'), 'Eine Ebene höher') : null,
+          h('button', { class: 'btn btn-text', type: 'button', onclick: editJson }, icon('data_object'), 'Als JSON'),
+          h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
+            const res = await dictEntryDialog({ isArray: Array.isArray(cur), taken: Object.keys(cur), title: 'Neuer Eintrag' });
+            if (res) { setEntry(cur, null, res.key, res.value); draw(); }
+          } }, icon('add'), 'Eintrag hinzufügen')));
+    }
+    draw();
+    return ui.modal({
+      title,
+      variant: 'full',
+      content: (close) => { closeFn = close; return box; },
+      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Fertig', primary: true, value: () => root.v }],
+    });
+  };
+
   ui.varDialog = async function ({ variable, scopes = ['g', 'l'], types, takenNames = () => [] } = {}) {
     const v = Object.assign({ name: '', type: (types && types[0]) || 'string', value: '' }, MS.util.clone(variable) || {});
     let scope = scopes[0];
@@ -245,8 +465,15 @@
         input = h('select', { class: 'input' }, h('option', { value: 'true' }, 'Wahr (true)'), h('option', { value: 'false' }, 'Falsch (false)'));
         input.value = String(cur);
       } else if (t === 'dictionary') {
-        input = h('textarea', { class: 'input mono', rows: 8, value: JSON.stringify(cur, null, 2), spellcheck: 'false' });
-        v.value = input.value;
+        // Einträge als Liste statt als JSON-Text (wie bei MacroDroid)
+        v.value = cur;
+        const summary = h('span', { class: 'field-hint' }, ui.dictSummary(cur));
+        const open = h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
+          const res = await ui.dictEditor(v.value, name.value.trim() || 'Wörterbuch');
+          if (res) { v.value = res; summary.textContent = ui.dictSummary(res); }
+        } }, icon('menu_book'), 'Einträge bearbeiten');
+        valueBox.replaceChildren(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Einträge'), summary, open));
+        return;
       } else {
         input = h('input', { class: 'input', type: t === 'string' ? 'text' : 'number', step: t === 'integer' ? '1' : 'any', value: String(cur) });
       }
@@ -272,9 +499,6 @@
             const n = name.value.trim();
             if (!MS.vars.validName(n)) { err.textContent = 'Bitte einen gültigen Namen ohne { } = : eingeben.'; return false; }
             if (takenNames(scope).includes(n) && (!variable || variable.name !== n)) { err.textContent = 'Dieser Name ist bereits vergeben.'; return false; }
-            if (typeSel.value === 'dictionary' && typeof v.value === 'string') {
-              try { JSON.parse(v.value); } catch (e) { err.textContent = 'Das Wörterbuch ist kein gültiges JSON: ' + e.message; return false; }
-            }
             return true;
           },
         },
