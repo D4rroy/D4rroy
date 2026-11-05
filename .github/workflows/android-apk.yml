@@ -49,7 +49,7 @@ jobs:
             # Google-Play-Dienste starten nach dem Booten neu und reißen dabei abhängige Apps mit – erst abwarten
             sleep 60
             ./gradlew --no-daemon connectedDebugAndroidTest || (echo '=== crash buffer ==='; adb logcat -d -b crash | tail -120; echo '=== app/test ==='; adb logcat -d | grep -E 'AndroidRuntime|TestRunner|MakroStudio|ActivityManager.*(makrostudio|ANR)|DEBUG  |crash_dump|Abort message|chromium.*(FATAL|ERROR)' | grep -v deletePackage | tail -120 ; for f in app/build/outputs/androidTest-results/connected/debug/*.xml; do grep -A25 "<failure" "$f"; done; exit 1)
-            adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I ImageMatcherTest:I ScreenOffTest:I DeviceEventsTest:I
+            adb logcat -d -s IntervalTriggerTest:I BackgroundServiceTest:I ImageMatcherTest:I ScreenOffTest:I DeviceEventsTest:I MakroStudio:I
 
       - name: Testbericht hochladen
         if: always()

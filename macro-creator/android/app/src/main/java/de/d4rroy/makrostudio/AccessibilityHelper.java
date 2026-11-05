@@ -303,8 +303,9 @@ public class AccessibilityHelper extends AccessibilityService {
         int code = event.getKeyCode();
         if (code != android.view.KeyEvent.KEYCODE_VOLUME_UP && code != android.view.KeyEvent.KEYCODE_VOLUME_DOWN) return false;
         EngineHost host = EngineHost.peek();
-        if (host == null) return false;
         boolean watched = Prefs.get(this).getBoolean(Prefs.VOLUME_WATCH, false);
+        android.util.Log.i("MakroStudio", "Lautstärketaste " + code + " action=" + event.getAction() + " engine=" + (host != null) + " watch=" + watched);
+        if (host == null) return false;
         if (!watched) return false;
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
             host.event("volume_key", SystemMonitor.obj("key", code == android.view.KeyEvent.KEYCODE_VOLUME_UP ? "up" : "down"));
