@@ -342,15 +342,31 @@
 
   /**
    * Wörterbuch wie in MacroDroid bearbeiten: Einträge als Liste, verschachtelte Einträge
-   * per Antippen öffnen, Einträge hinzufügen, ändern, umbenennen und löschen.
-   * Gibt das geänderte Wörterbuch zurück oder null bei Abbruch.
+   * per Antippen öffnen, Einträge hinzufügen, ändern, umbenennen und löschen. Einträge lassen
+   * sich markieren und in ein anderes Wörterbuch kopieren oder verschieben – innerhalb dieser
+   * Variable oder in eine andere Wörterbuch-Variable (targets: [{ id, label, get(), set(v) }]).
+   * Gibt das geänderte Wörterbuch zurück oder null bei Abbruch; Änderungen an anderen
+   * Variablen werden erst mit „Fertig“ übernommen.
    */
-  ui.dictEditor = function (value, title = 'Wörterbuch') {
+  ui.dictEditor = function (value, title = 'Wörterbuch', { targets = [] } = {}) {
     const root = { v: MS.util.clone(isContainer(value) ? value : {}) };
     const path = [];
-    const current = () => path.reduce((o, k) => (Array.isArray(o) ? o[Number(k) - 1] : o[k]), root.v);
+    const at = (base, p) => p.reduce((o, k) => (o == null ? o : Array.isArray(o) ? o[Number(k) - 1] : o[k]), base);
+    const current = () => at(root.v, path);
     const box = h('div', { class: 'dict-editor' });
-    let closeFn;
+    // Andere Variablen: Kopien, die erst bei „Fertig“ zurückgeschrieben werden
+    const others = new Map();
+    const otherValue = (t) => {
+      if (!others.has(t.id)) {
+        const v = t.get();
+        others.set(t.id, { t, v: MS.util.clone(isContainer(v) ? v : {}) });
+      }
+      return others.get(t.id);
+    };
+    let selecting = false;
+    const selected = new Set();
+    const exitSelect = () => { selecting = false; selected.clear(); };
+
     const setEntry = (container, oldKey, key, v) => {
       if (Array.isArray(container)) {
         if (oldKey) container[Number(oldKey) - 1] = v; else container.push(v);
@@ -363,9 +379,10 @@
         entries.forEach(([k, x]) => { container[k] = x; });
       } else container[key] = v;
     };
-    const removeEntry = (container, key) => {
-      if (Array.isArray(container)) container.splice(Number(key) - 1, 1);
-      else delete container[key];
+    const removeEntries = (container, keys) => {
+      if (Array.isArray(container)) {
+        keys.map(Number).sort((a, b) => b - a).forEach((i) => container.splice(i - 1, 1));
+      } else keys.forEach((k) => delete container[k]);
     };
     async function editEntry(key, v) {
       const cur = current();
@@ -378,17 +395,136 @@
       const r = await ui.sheet(key, [
         { icon: 'folder_open', label: 'Öffnen', value: 'open', hidden: !isContainer(v) },
         { icon: 'edit', label: isContainer(v) ? 'Umbenennen / Typ ändern' : 'Bearbeiten', value: 'edit' },
-        { icon: 'content_copy', label: 'Wert kopieren', value: 'copy', hidden: isContainer(v) },
+        { icon: 'checklist', label: 'Markieren', value: 'select' },
+        { icon: 'content_copy', label: 'Kopieren nach …', value: 'copy_to' },
+        { icon: 'drive_file_move', label: 'Verschieben nach …', value: 'move_to' },
+        { icon: 'content_paste', label: 'Wert in Zwischenablage', value: 'clip', hidden: isContainer(v) },
         { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
       ], isContainer(v) ? ui.dictSummary(v) : String(v));
-      if (r === 'open') { path.push(key); draw(); }
+      if (r === 'open') { path.push(key); exitSelect(); draw(); }
       if (r === 'edit') editEntry(key, v);
-      if (r === 'copy') { if (MS.native.available) MS.native.copy(String(v)); else navigator.clipboard && navigator.clipboard.writeText(String(v)).catch(() => {}); ui.toast('Kopiert'); }
+      if (r === 'select') { selecting = true; selected.clear(); selected.add(key); draw(); }
+      if (r === 'copy_to' || r === 'move_to') transfer([key], r === 'move_to');
+      if (r === 'clip') { if (MS.native.available) MS.native.copy(String(v)); else navigator.clipboard && navigator.clipboard.writeText(String(v)).catch(() => {}); ui.toast('Kopiert'); }
       if (r === 'del' && await ui.confirm('Eintrag löschen?', `„${key}“${isContainer(v) ? ' mit allen Untereinträgen' : ''} wird gelöscht.`, 'Löschen', 'Abbrechen', true)) {
-        removeEntry(current(), key);
+        removeEntries(current(), [key]);
         draw();
       }
     }
+
+    /** Ziel-Wörterbuch wählen → { base: 'self'|Ziel, path } oder null. */
+    function pickTarget(movingKeys, move) {
+      const srcPath = path.slice();
+      let tgt = null; // null = Auswahl der Variable
+      let tpath = [];
+      const pbox = h('div', { class: 'dict-editor' });
+      const baseValue = () => (tgt === 'self' ? root.v : otherValue(tgt).v);
+      const baseLabel = () => (tgt === 'self' ? title : tgt.label);
+      // Ein Eintrag darf nicht in sich selbst (oder einen eigenen Untereintrag) verschoben werden
+      const insideMoved = (p) => tgt === 'self' && movingKeys.some((k) => {
+        const own = srcPath.concat(k);
+        return p.length >= own.length && own.every((x, i) => p[i] === x);
+      });
+      const isSource = () => tgt === 'self' && tpath.length === srcPath.length && tpath.every((x, i) => x === srcPath[i]);
+      let resolveFn;
+      const render = () => {
+        if (tgt === null) {
+          pbox.replaceChildren(...[
+            h('p', { class: 'dialog-help' }, `${movingKeys.length} ${movingKeys.length === 1 ? 'Eintrag' : 'Einträge'} ${move ? 'verschieben' : 'kopieren'} – Ziel wählen:`),
+            h('div', { class: 'card list dict-list' },
+              [{ id: 'self', label: title, self: true }, ...targets].map((t) => h('div', { class: 'var-row dict-row', role: 'button', tabindex: '0', onclick: () => {
+                tgt = t.self ? 'self' : t;
+                tpath = [];
+                render();
+              } },
+              h('span', { class: 'item-icon', style: { background: t.self ? 'var(--action)' : 'var(--localvar)' } }, icon('menu_book')),
+              h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, t.label), h('div', { class: 'item-sub' }, t.self ? 'Diese Variable' : ui.dictSummary(otherValue(t).v))),
+              icon('chevron_right', 'item-more')))),
+            targets.length ? null : h('p', { class: 'field-hint' }, 'Es gibt keine weiteren Wörterbuch-Variablen – Ziel ist ein Wörterbuch innerhalb dieser Variable.'),
+          ].filter(Boolean));
+          return;
+        }
+        const cur = at(baseValue(), tpath);
+        const subs = entriesOf(cur).filter(([k, v]) => isContainer(v) && !insideMoved(tpath.concat(k)));
+        pbox.replaceChildren(
+          h('div', { class: 'dict-path' },
+            h('button', { class: 'chip', type: 'button', onclick: () => { tgt = null; render(); } }, icon('arrow_back'), 'Variablen'),
+            icon('chevron_right', 'dict-sep'),
+            h('button', { class: 'chip' + (tpath.length ? '' : ' on'), type: 'button', onclick: () => { tpath = []; render(); } }, icon('menu_book'), baseLabel()),
+            tpath.map((k, i) => [icon('chevron_right', 'dict-sep'),
+              h('button', { class: 'chip' + (i === tpath.length - 1 ? ' on' : ''), type: 'button', onclick: () => { tpath = tpath.slice(0, i + 1); render(); } }, k)])),
+          subs.length
+            ? h('div', { class: 'card list dict-list' }, subs.map(([k, v]) => h('div', { class: 'var-row dict-row', role: 'button', tabindex: '0', onclick: () => { tpath = tpath.concat(k); render(); } },
+              h('span', { class: 'item-icon', style: { background: 'var(--action)' } }, icon(dictIcon[typeOfValue(v)])),
+              h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, Array.isArray(cur) ? `[${k}]` : k), h('div', { class: 'item-sub' }, ui.dictSummary(v))),
+              icon('chevron_right', 'item-more'))))
+            : h('p', { class: 'field-hint' }, 'Keine Unter-Wörterbücher auf dieser Ebene.'),
+          h('div', { class: 'dict-actions' },
+            h('button', { class: 'btn btn-text', type: 'button', onclick: async () => {
+              const name = await ui.prompt('Neues Wörterbuch', 'Name des neuen Eintrags auf dieser Ebene');
+              if (!name || !name.trim()) return;
+              const c = at(baseValue(), tpath);
+              if (!Array.isArray(c) && c[name.trim()] !== undefined) { ui.toast('Diesen Schlüssel gibt es schon'); return; }
+              setEntry(c, null, name.trim(), {});
+              tpath = tpath.concat(Array.isArray(c) ? String(c.length) : name.trim());
+              render();
+            } }, icon('create_new_folder'), 'Neues Wörterbuch'),
+            h('button', { class: 'btn btn-primary', type: 'button', disabled: isSource() ? '' : null,
+              onclick: () => resolveFn({ base: tgt, path: tpath.slice() }) }, icon(move ? 'drive_file_move' : 'content_copy'), move ? 'Hierher verschieben' : 'Hierher kopieren')));
+      };
+      render();
+      return ui.modal({
+        title: move ? 'Verschieben nach' : 'Kopieren nach',
+        variant: 'full',
+        content: (close) => { resolveFn = close; return pbox; },
+        buttons: [{ label: 'Abbrechen', value: null }],
+      });
+    }
+
+    /** Markierte Einträge kopieren oder verschieben. */
+    async function transfer(keys, move) {
+      if (!keys.length) return;
+      const src = current();
+      const target = await pickTarget(keys, move);
+      if (!target) return;
+      const dest = at(target.base === 'self' ? root.v : otherValue(target.base).v, target.path);
+      if (!isContainer(dest)) { ui.toast('Ziel nicht gefunden'); return; }
+      const items = keys.map((k) => [k, Array.isArray(src) ? src[Number(k) - 1] : src[k]]);
+      // Gleichnamige Schlüssel im Ziel: einmal fragen
+      let mode = 'overwrite';
+      const clash = Array.isArray(dest) ? [] : items.filter(([k]) => dest[k] !== undefined);
+      if (clash.length) {
+        const r = await ui.sheet(`${clash.length} ${clash.length === 1 ? 'Schlüssel gibt' : 'Schlüssel gibt'} es im Ziel schon`, [
+          { icon: 'sync_alt', label: 'Überschreiben', value: 'overwrite' },
+          { icon: 'library_add', label: 'Beide behalten (umbenennen)', value: 'rename' },
+          { icon: 'block', label: 'Diese überspringen', value: 'skip' },
+        ], clash.map(([k]) => k).join(', '));
+        if (!r) return;
+        mode = r;
+      }
+      const done = [];
+      for (const [k, v] of items) {
+        const copy = MS.util.clone(v);
+        if (Array.isArray(dest)) { dest.push(copy); done.push(k); continue; }
+        let key = k;
+        if (dest[k] !== undefined) {
+          if (mode === 'skip') continue;
+          if (mode === 'rename') { let n = 2; while (dest[`${k} (${n})`] !== undefined) n++; key = `${k} (${n})`; }
+        }
+        dest[key] = copy;
+        done.push(k);
+      }
+      if (move) {
+        // Quelle neu auflösen – das Ziel kann im selben Wörterbuch liegen
+        const srcNow = current();
+        removeEntries(srcNow, done);
+      }
+      exitSelect();
+      draw();
+      const where = target.base === 'self' ? title : target.base.label;
+      ui.toast(`${done.length} ${done.length === 1 ? 'Eintrag' : 'Einträge'} ${move ? 'verschoben' : 'kopiert'} → ${[where, ...target.path].join(' › ')}`, 2600, move ? 'drive_file_move' : 'content_copy');
+    }
+
     async function editJson() {
       const ta = h('textarea', { class: 'input mono', rows: 14, spellcheck: 'false', value: JSON.stringify(current(), null, 2) });
       const err = h('div', { class: 'field-error' });
@@ -404,52 +540,93 @@
       });
       if (!ok) return;
       if (!path.length) root.v = parsed;
-      else {
-        const parentPath = path.slice(0, -1);
-        const parent = parentPath.reduce((o, k) => (Array.isArray(o) ? o[Number(k) - 1] : o[k]), root.v);
-        setEntry(parent, path[path.length - 1], path[path.length - 1], parsed);
-      }
+      else setEntry(at(root.v, path.slice(0, -1)), path[path.length - 1], path[path.length - 1], parsed);
       draw();
     }
+
+    function row(cur, k, v) {
+      const t = typeOfValue(v);
+      const isSel = selected.has(k);
+      let pressTimer = null;
+      const el = h('div', { class: 'var-row dict-row' + (isSel ? ' selected' : ''), role: 'button', tabindex: '0',
+        onclick: () => {
+          if (selecting) {
+            if (isSel) selected.delete(k); else selected.add(k);
+            if (!selected.size) selecting = false;
+            draw();
+          } else if (isContainer(v)) { path.push(k); draw(); } else editEntry(k, v);
+        } },
+      selecting ? h('span', { class: 'dict-check' + (isSel ? ' on' : '') }, icon(isSel ? 'check_box' : 'check_box_outline_blank')) : null,
+      h('span', { class: 'item-icon', style: { background: isContainer(v) ? 'var(--action)' : 'var(--localvar)' } }, icon(dictIcon[t])),
+      h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, Array.isArray(cur) ? `[${k}]` : k),
+        h('div', { class: 'item-sub' }, DICT_TYPES.find((x) => x[0] === t)[1] + (isContainer(v) ? ' · ' + ui.dictSummary(v) : ''))),
+      isContainer(v) ? null : h('span', { class: 'var-value' + (t === 'boolean' ? (v ? ' true' : ' false') : '') }, String(v) === '' ? '—' : String(v)),
+      selecting ? null : h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Optionen', onclick: (e) => { e.stopPropagation(); entryMenu(k, v); } }, icon('more_vert')));
+      // Lange drücken startet die Auswahl (wie bei Android-Listen üblich)
+      const startPress = () => { pressTimer = setTimeout(() => { pressTimer = 'fired'; selecting = true; selected.add(k); draw(); }, 500); };
+      const cancelPress = () => { if (pressTimer && pressTimer !== 'fired') clearTimeout(pressTimer); };
+      el.addEventListener('touchstart', startPress, { passive: true });
+      el.addEventListener('touchmove', cancelPress, { passive: true });
+      el.addEventListener('touchend', (e) => { if (pressTimer === 'fired') e.preventDefault(); cancelPress(); });
+      el.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!selecting) { selecting = true; selected.add(k); draw(); } });
+      return el;
+    }
+
     function draw() {
       const cur = current();
       const list = entriesOf(cur);
       const crumbs = h('div', { class: 'dict-path' },
-        h('button', { class: 'chip' + (path.length ? '' : ' on'), type: 'button', onclick: () => { path.length = 0; draw(); } }, icon('menu_book'), title),
+        h('button', { class: 'chip' + (path.length ? '' : ' on'), type: 'button', onclick: () => { path.length = 0; exitSelect(); draw(); } }, icon('menu_book'), title),
         path.map((k, i) => [icon('chevron_right', 'dict-sep'),
-          h('button', { class: 'chip' + (i === path.length - 1 ? ' on' : ''), type: 'button', onclick: () => { path.length = i + 1; draw(); } }, k)]));
-      box.replaceChildren(
+          h('button', { class: 'chip' + (i === path.length - 1 ? ' on' : ''), type: 'button', onclick: () => { path.length = i + 1; exitSelect(); draw(); } }, k)]));
+      const keys = list.map(([k]) => k);
+      const selBar = selecting
+        ? h('div', { class: 'dict-selbar' },
+          h('span', { class: 'dict-selcount' }, `${selected.size} markiert`),
+          h('button', { class: 'btn btn-text', type: 'button', onclick: () => {
+            if (selected.size === keys.length) selected.clear(); else keys.forEach((k) => selected.add(k));
+            draw();
+          } }, icon('select_all'), selected.size === keys.length ? 'Keine' : 'Alle'),
+          h('button', { class: 'btn btn-tonal', type: 'button', disabled: selected.size ? null : '', onclick: () => transfer([...selected], false) }, icon('content_copy'), 'Kopieren'),
+          h('button', { class: 'btn btn-tonal', type: 'button', disabled: selected.size ? null : '', onclick: () => transfer([...selected], true) }, icon('drive_file_move'), 'Verschieben'),
+          h('button', { class: 'btn btn-text danger', type: 'button', disabled: selected.size ? null : '', onclick: async () => {
+            if (!await ui.confirm('Markierte löschen?', `${selected.size} ${selected.size === 1 ? 'Eintrag wird' : 'Einträge werden'} gelöscht.`, 'Löschen', 'Abbrechen', true)) return;
+            removeEntries(cur, [...selected]);
+            exitSelect();
+            draw();
+          } }, icon('delete'), 'Löschen'),
+          h('button', { class: 'btn btn-text', type: 'button', onclick: () => { exitSelect(); draw(); } }, icon('close'), 'Abbrechen'))
+        : null;
+      box.replaceChildren(...[
         crumbs,
+        selBar,
         list.length
-          ? h('div', { class: 'card list dict-list' }, list.map(([k, v]) => {
-            const t = typeOfValue(v);
-            return h('div', { class: 'var-row dict-row', role: 'button', tabindex: '0',
-              onclick: () => (isContainer(v) ? (path.push(k), draw()) : editEntry(k, v)) },
-            h('span', { class: 'item-icon', style: { background: isContainer(v) ? 'var(--action)' : 'var(--localvar)' } }, icon(dictIcon[t])),
-            h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, Array.isArray(cur) ? `[${k}]` : k),
-              h('div', { class: 'item-sub' }, DICT_TYPES.find((x) => x[0] === t)[1] + (isContainer(v) ? ' · ' + ui.dictSummary(v) : ''))),
-            isContainer(v) ? null : h('span', { class: 'var-value' + (t === 'boolean' ? (v ? ' true' : ' false') : '') }, String(v) === '' ? '—' : String(v)),
-            h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Optionen', onclick: (e) => { e.stopPropagation(); entryMenu(k, v); } }, icon('more_vert')));
-          }))
+          ? h('div', { class: 'card list dict-list' }, list.map(([k, v]) => row(cur, k, v)))
           : h('p', { class: 'sec-empty' }, Array.isArray(cur) ? 'Die Liste ist leer.' : 'Das Wörterbuch ist leer.'),
-        h('div', { class: 'dict-actions' },
+        selecting ? null : h('div', { class: 'dict-actions' },
           path.length ? h('button', { class: 'btn btn-text', type: 'button', onclick: () => { path.pop(); draw(); } }, icon('arrow_upward'), 'Eine Ebene höher') : null,
+          list.length ? h('button', { class: 'btn btn-text', type: 'button', onclick: () => { selecting = true; draw(); } }, icon('checklist'), 'Auswählen') : null,
           h('button', { class: 'btn btn-text', type: 'button', onclick: editJson }, icon('data_object'), 'Als JSON'),
           h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
             const res = await dictEntryDialog({ isArray: Array.isArray(cur), taken: Object.keys(cur), title: 'Neuer Eintrag' });
             if (res) { setEntry(cur, null, res.key, res.value); draw(); }
-          } }, icon('add'), 'Eintrag hinzufügen')));
+          } }, icon('add'), 'Eintrag hinzufügen')),
+      ].filter(Boolean));
     }
     draw();
     return ui.modal({
       title,
       variant: 'full',
-      content: (close) => { closeFn = close; return box; },
-      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Fertig', primary: true, value: () => root.v }],
+      content: () => box,
+      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Fertig', primary: true, value: () => {
+        // Geänderte andere Variablen übernehmen
+        for (const { t, v } of others.values()) t.set(v);
+        return root.v;
+      } }],
     });
   };
 
-  ui.varDialog = async function ({ variable, scopes = ['g', 'l'], types, takenNames = () => [] } = {}) {
+  ui.varDialog = async function ({ variable, scopes = ['g', 'l'], types, takenNames = () => [], dictTargets = [] } = {}) {
     const v = Object.assign({ name: '', type: (types && types[0]) || 'string', value: '' }, MS.util.clone(variable) || {});
     let scope = scopes[0];
     const err = h('div', { class: 'field-error' });
@@ -469,7 +646,7 @@
         v.value = cur;
         const summary = h('span', { class: 'field-hint' }, ui.dictSummary(cur));
         const open = h('button', { class: 'btn btn-tonal', type: 'button', onclick: async () => {
-          const res = await ui.dictEditor(v.value, name.value.trim() || 'Wörterbuch');
+          const res = await ui.dictEditor(v.value, name.value.trim() || 'Wörterbuch', { targets: dictTargets });
           if (res) { v.value = res; summary.textContent = ui.dictSummary(res); }
         } }, icon('menu_book'), 'Einträge bearbeiten');
         valueBox.replaceChildren(h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Einträge'), summary, open));

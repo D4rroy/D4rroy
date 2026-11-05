@@ -5,6 +5,17 @@
   const MS = window.MS;
   const { h, icon } = MS.ui;
   const ui = MS.ui;
+  /** Andere Wörterbuch-Variablen als Ziele zum Kopieren/Verschieben von Einträgen. */
+  function dictTargets({ exclude, locals } = {}) {
+    const list = [];
+    (locals || []).filter((x) => x.type === 'dictionary' && x !== exclude).forEach((x) => list.push({
+      id: 'l:' + x.name, label: 'lokal ' + x.name, get: () => x.value, set: (nv) => { x.value = nv; },
+    }));
+    MS.store.state.variables.filter((x) => x.type === 'dictionary' && x !== exclude).forEach((x) => list.push({
+      id: 'g:' + x.name, label: x.name, get: () => x.value, set: (nv) => MS.vars.set('g:' + x.name, nv),
+    }));
+    return list;
+  }
   const { clone, uid, fmtTime, fmtDateTime } = MS.util;
   const S = () => MS.store.state;
   const go = (hash) => MS.app.navigate(hash);
@@ -597,7 +608,7 @@
       return h('section', { class: 'sec', style: { '--sec': 'var(--localvar)' } },
         h('header', { class: 'sec-head' }, icon('data_object'), h('h2', null, isBlock ? 'Variablen (Ein-/Ausgabe)' : 'Lokale Variablen'), h('span', { class: 'count' }, String(vars.length)),
           h('button', { class: 'sec-add', type: 'button', 'aria-label': 'Variable hinzufügen', onclick: async () => {
-            const res = await ui.varDialog({ scopes: ['l'], takenNames: () => vars.map((v) => v.name) });
+            const res = await ui.varDialog({ scopes: ['l'], takenNames: () => vars.map((v) => v.name), dictTargets: dictTargets({ locals: vars }) });
             if (res) { if (isBlock) res.variable.io = 'input'; vars.push(res.variable); draw(); }
           } }, icon('add'))),
         vars.length
@@ -611,7 +622,7 @@
               { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
             ]);
             if (r === 'edit') {
-              const res = await ui.varDialog({ variable: v, scopes: ['l'], takenNames: () => vars.map((x) => x.name) });
+              const res = await ui.varDialog({ variable: v, scopes: ['l'], takenNames: () => vars.map((x) => x.name), dictTargets: dictTargets({ locals: vars, exclude: v }) });
               if (res) vars[i] = Object.assign({}, v, res.variable);
             } else if (r === 'del') vars.splice(i, 1);
             else if (r) v.io = r;
@@ -787,7 +798,7 @@
           h('p', { class: 'intro' }, 'Globale Variablen gelten in allen Makros. In Texten mit {v=name} einfügen.'),
           listBox,
           fab('add', 'Variable hinzufügen', async () => {
-            const res = await ui.varDialog({ scopes: ['g'], takenNames: taken });
+            const res = await ui.varDialog({ scopes: ['g'], takenNames: taken, dictTargets: dictTargets() });
             if (res) { S().variables.push(res.variable); MS.store.changed('vars'); }
           }));
         off = live(() => {
@@ -814,7 +825,7 @@
       ], `${MS.vars.TYPES[v.type]} · ${v.type === 'dictionary' ? ui.dictSummary(v.value) : MS.vars.format(v.value)}`);
       const ref = 'g:' + v.name;
       if (r === 'dict') {
-        const res = await ui.dictEditor(v.value, v.name);
+        const res = await ui.dictEditor(v.value, v.name, { targets: dictTargets({ exclude: v }) });
         if (res) MS.vars.set(ref, res);
       }
       if (r === 'toggle') MS.vars.set(ref, !v.value);
@@ -823,7 +834,7 @@
         if (nv !== null) MS.vars.set(ref, nv);
       }
       if (r === 'edit') {
-        const res = await ui.varDialog({ variable: v, scopes: ['g'], takenNames: taken });
+        const res = await ui.varDialog({ variable: v, scopes: ['g'], takenNames: taken, dictTargets: dictTargets({ exclude: v }) });
         if (res) { Object.assign(v, res.variable); MS.store.changed('vars'); }
       }
       if (r === 'del') {

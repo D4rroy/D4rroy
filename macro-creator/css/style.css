@@ -501,3 +501,11 @@ html.modal-open, html.modal-open body { overflow: hidden; overscroll-behavior: n
 .dict-row .item-title { overflow-wrap: anywhere; }
 .dict-row .var-value { max-width: 38%; }
 .dict-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.dict-row.selected { background: color-mix(in srgb, var(--action) 12%, transparent); }
+.dict-check { display: inline-flex; color: var(--text-2); }
+.dict-check.on { color: var(--action); }
+.dict-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 14px; background: var(--surface-2); position: sticky; top: 0; z-index: 2; }
+.dict-selcount { font-weight: 600; margin-right: auto; padding-left: 4px; }
+.btn.danger { color: var(--danger); }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+.dict-selbar .btn { min-height: 36px; padding: 0 12px; font-size: 14px; }
