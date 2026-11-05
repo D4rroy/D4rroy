@@ -684,6 +684,151 @@
     });
   };
 
+  // ------------------------------------------------- Variablen-Eintrag wählen
+  const PAIR_KEYS = [['centerX', 'centerY'], ['x', 'y'], ['X', 'Y'], ['posX', 'posY'], ['startX', 'startY']];
+  const pairIn = (o) => (o && typeof o === 'object' && !Array.isArray(o) ? PAIR_KEYS.find(([a, b]) => o[a] !== undefined && o[b] !== undefined) : null);
+  /**
+   * Sichtfenster zum Aussuchen eines Variablen-Eintrags (auch tief in Wörterbüchern).
+   * Ergebnis: Magic-Text wie „{lv=offline skip[Std. Buttons][Exit btn.][centerX]}“ oder
+   * mit pair: true für ein Wörterbuch mit centerX/centerY → { pair: [tokX, tokY] }.
+   */
+  ui.varEntryPicker = function (ctx, { pair = false } = {}) {
+    const box = h('div', { class: 'dict-editor' });
+    let sel = null; // { scope, v }
+    let path = [];
+    let close;
+    const token = (keys) => `{${sel.scope === 'l' ? 'lv' : 'v'}=${sel.v.name}${keys.map((k) => `[${k}]`).join('')}}`;
+    const at = () => path.reduce((o, k) => (o == null ? o : Array.isArray(o) ? o[Number(k) - 1] : o[k]), sel.v.value);
+    const pairButton = (obj, keys, big) => {
+      const pk = pairIn(obj);
+      if (!pair || !pk) return null;
+      return h('button', { class: 'btn ' + (big ? 'btn-primary' : 'btn-tonal btn-sm'), type: 'button', onclick: (e) => {
+        e.stopPropagation();
+        close({ pair: [token(keys.concat(pk[0])), token(keys.concat(pk[1]))], label: `${pk[0]} = ${obj[pk[0]]}, ${pk[1]} = ${obj[pk[1]]}` });
+      } }, icon('my_location'), big ? `X/Y übernehmen (${pk[0]} ${obj[pk[0]]}, ${pk[1]} ${obj[pk[1]]})` : 'X/Y');
+    };
+    const valueRow = (title, sub, v, onPick, onOpen, extra) => h('div', { class: 'var-row dict-row', role: 'button', tabindex: '0', onclick: isContainer(v) ? onOpen : onPick },
+      h('span', { class: 'item-icon', style: { background: isContainer(v) ? 'var(--action)' : 'var(--localvar)' } }, icon(dictIcon[typeOfValue(v)])),
+      h('div', { class: 'item-text' }, h('div', { class: 'item-title' }, title), h('div', { class: 'item-sub' }, sub)),
+      extra || null,
+      isContainer(v) ? icon('chevron_right', 'item-more') : h('span', { class: 'var-value' }, String(v) === '' ? '—' : String(v)));
+    function draw() {
+      if (!sel) {
+        const groups = [['Lokale Variablen', 'l', (ctx && ctx.locals) || []], ['Globale Variablen', 'g', MS.store.state.variables]];
+        const parts = [];
+        for (const [name, scope, vars] of groups) {
+          if (!vars.length) continue;
+          parts.push(h('div', { class: 'magic-group' }, name), h('div', { class: 'card list dict-list' }, vars.map((v) => valueRow(v.name, (scope === 'l' ? 'lokal · ' : '') + (MS.vars.TYPES[v.type] || v.type) + (isContainer(v.value) ? ' · ' + ui.dictSummary(v.value) : ''), v.value,
+            () => { sel = { scope, v }; close(token([])); },
+            () => { sel = { scope, v }; path = []; draw(); },
+            (() => { sel = { scope, v }; const b = pairButton(v.value, [], false); sel = null; return b; })()))));
+        }
+        box.replaceChildren(...(parts.length ? parts : [h('p', { class: 'sec-empty' }, 'Noch keine Variablen vorhanden.')]));
+        return;
+      }
+      const cur = at();
+      const crumbs = h('div', { class: 'dict-path' },
+        h('button', { class: 'chip', type: 'button', onclick: () => { sel = null; path = []; draw(); } }, icon('arrow_back'), 'Variablen'),
+        icon('chevron_right', 'dict-sep'),
+        h('button', { class: 'chip' + (path.length ? '' : ' on'), type: 'button', onclick: () => { path = []; draw(); } }, icon('menu_book'), sel.v.name),
+        path.map((k, i) => [icon('chevron_right', 'dict-sep'), h('button', { class: 'chip' + (i === path.length - 1 ? ' on' : ''), type: 'button', onclick: () => { path = path.slice(0, i + 1); draw(); } }, k)]));
+      const entries = entriesOf(cur);
+      box.replaceChildren(...[
+        crumbs,
+        pairButton(cur, path, true),
+        entries.length ? h('div', { class: 'card list dict-list' }, entries.map(([k, v]) => valueRow(Array.isArray(cur) ? `[${k}]` : k,
+          DICT_TYPES.find((x) => x[0] === typeOfValue(v))[1] + (isContainer(v) ? ' · ' + ui.dictSummary(v) : ''), v,
+          () => close(token(path.concat(k))),
+          () => { path = path.concat(k); draw(); },
+          pairButton(v, path.concat(k), false)))) : h('p', { class: 'sec-empty' }, 'Keine Einträge.'),
+        h('p', { class: 'field-hint' }, 'Antippen fügt den Eintrag als Magic Text ein – der Wert wird beim Ausführen jeweils frisch gelesen.'),
+      ].filter(Boolean));
+    }
+    return ui.modal({
+      title: pair ? 'Koordinaten aus Variable' : 'Eintrag aus Variable',
+      variant: 'full',
+      content: (c) => { close = c; draw(); return box; },
+      buttons: [{ label: 'Abbrechen', value: null }],
+    });
+  };
+
+  // ------------------------------------------------- Position auf Screenshot wählen
+  let lastShot = null; // { url, w, h } – bleibt für die nächste Auswahl erhalten
+  /** Screenshot als Sichtfenster: Stelle antippen → { x, y, w, h } in Bildpixeln oder null. */
+  ui.screenPointPicker = function (start) {
+    const wrap = h('div', { class: 'shot-wrap' });
+    const canvas = h('canvas', { class: 'shot-canvas' });
+    const info = h('div', { class: 'shot-info' }, 'Screenshot auswählen …');
+    const file = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+    let img = null, point = start && Number.isFinite(start.x) ? { x: start.x, y: start.y } : null, grid = true, zoom = false;
+    const paint = () => {
+      if (!img) return;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const W = canvas.width, H = canvas.height;
+      const lw = Math.max(1, Math.round(W / 540));
+      if (grid) {
+        g.font = `bold ${Math.round(W / 45)}px monospace`;
+        for (let x = 50; x < W; x += 50) {
+          g.strokeStyle = x % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = x % 100 ? lw : lw * 1.5;
+          g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+        }
+        for (let y = 50; y < H; y += 50) {
+          g.strokeStyle = y % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = y % 100 ? lw : lw * 1.5;
+          g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+        }
+        g.fillStyle = 'rgba(0,0,0,.7)';
+        for (let x = 100; x < W; x += 100) { g.fillRect(x + 2, 2, W / 22, W / 36); }
+        for (let y = 100; y < H; y += 100) { g.fillRect(2, y + 2, W / 22, W / 36); }
+        g.fillStyle = '#fff';
+        for (let x = 100; x < W; x += 100) g.fillText(String(x), x + 4, W / 45 + 2);
+        for (let y = 100; y < H; y += 100) g.fillText(String(y), 4, y + W / 45 + 2);
+      }
+      if (point) {
+        const r = Math.round(W / 30);
+        g.strokeStyle = '#00e5ff'; g.lineWidth = lw * 3;
+        g.beginPath(); g.moveTo(point.x - r * 2, point.y); g.lineTo(point.x + r * 2, point.y); g.moveTo(point.x, point.y - r * 2); g.lineTo(point.x, point.y + r * 2); g.stroke();
+        g.beginPath(); g.arc(point.x, point.y, r, 0, Math.PI * 2); g.stroke();
+      }
+      canvas.style.width = zoom ? W / (window.devicePixelRatio || 1) + 'px' : '100%';
+      info.textContent = point
+        ? `X ${point.x} · Y ${point.y} px  (${(point.x / W * 100).toFixed(1)} % · ${(point.y / H * 100).toFixed(1)} %)  –  Bild ${W} × ${H}`
+        : `Stelle im Bild antippen  –  Bild ${W} × ${H}`;
+    };
+    const load = (url) => {
+      const i = new Image();
+      i.onload = () => { img = i; lastShot = { url, w: i.naturalWidth, h: i.naturalHeight }; paint(); };
+      i.onerror = () => { info.textContent = 'Bild konnte nicht geladen werden.'; };
+      i.src = url;
+    };
+    file.addEventListener('change', () => {
+      const f = file.files && file.files[0];
+      if (f) { point = null; load(URL.createObjectURL(f)); }
+    });
+    canvas.addEventListener('click', (e) => {
+      if (!img) return;
+      const r = canvas.getBoundingClientRect();
+      point = { x: Math.round((e.clientX - r.left) / r.width * canvas.width), y: Math.round((e.clientY - r.top) / r.height * canvas.height) };
+      paint();
+    });
+    const tools = h('div', { class: 'shot-tools' },
+      h('button', { class: 'btn btn-tonal btn-sm', type: 'button', onclick: () => file.click() }, icon('add_photo_alternate'), 'Screenshot wählen'),
+      h('button', { class: 'btn btn-text btn-sm on', type: 'button', onclick: (e) => { grid = !grid; e.currentTarget.classList.toggle('on', grid); paint(); } }, icon('grid_on'), 'Raster'),
+      h('button', { class: 'btn btn-text btn-sm', type: 'button', onclick: () => { zoom = !zoom; paint(); } }, icon('zoom_in'), 'Zoom 1:1'));
+    wrap.append(canvas);
+    if (lastShot) load(lastShot.url); else setTimeout(() => file.click(), 50);
+    return ui.modal({
+      title: 'Position auf Screenshot',
+      variant: 'full',
+      content: h('div', { class: 'shot-picker' }, tools, info, wrap, file,
+        h('p', { class: 'field-hint' }, 'Tipp: Screenshot im Spiel machen, hier auswählen und die gewünschte Stelle antippen. Pixel passen nur zum selben Gerät; mit „% der Bildschirmgröße“ funktioniert es auch auf anderen Auflösungen.')),
+      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Übernehmen', primary: true, value: () => (point && img ? { x: point.x, y: point.y, w: canvas.width, h: canvas.height } : null),
+        validate: () => { if (!point) { ui.toast('Bitte zuerst eine Stelle antippen'); return false; } return true; } }],
+    });
+  };
+
   ui.varDialog = async function ({ variable, scopes = ['g', 'l'], types, takenNames = () => [], dictTargets = [] } = {}) {
     const v = Object.assign({ name: '', type: (types && types[0]) || 'string', value: '' }, MS.util.clone(variable) || {});
     let scope = scopes[0];
@@ -785,7 +930,37 @@
               input.focus();
               input.setSelectionRange(s + tok.length, s + tok.length);
             },
-          }, h('span', { class: 'magic-glyph' }, '{ }')) : null);
+          }, h('span', { class: 'magic-glyph' }, '{ }')) : null,
+          f.magic ? h('button', {
+            class: 'icon-btn magic-btn', type: 'button', title: 'Eintrag aus Variable wählen', 'aria-label': 'Eintrag aus Variable wählen',
+            onclick: async () => {
+              const r = await ui.varEntryPicker(ctx, { pair: !!f.coord });
+              if (!r) return;
+              if (typeof r === 'object' && r.pair && f.coord) {
+                // X und Y auf einmal setzen
+                p[f.coord[0]] = r.pair[0];
+                p[f.coord[1]] = r.pair[1];
+                render();
+                ui.toast('X und Y übernommen: ' + r.label, 2200, 'my_location');
+                return;
+              }
+              const tok = typeof r === 'object' ? r.pair[f.coord && f.coord[1] === f.key ? 1 : 0] : r;
+              input.value = f.coord ? tok : input.value + tok;
+              set(input.value);
+            },
+          }, icon('manage_search')) : null,
+          f.coord ? h('button', {
+            class: 'icon-btn magic-btn', type: 'button', title: 'Position auf Screenshot zeigen', 'aria-label': 'Position auf Screenshot zeigen',
+            onclick: async () => {
+              const pt = await ui.screenPointPicker();
+              if (!pt) return;
+              const pct = p.percent;
+              p[f.coord[0]] = pct ? String(Math.round(pt.x / pt.w * 1000) / 10) : String(pt.x);
+              p[f.coord[1]] = pct ? String(Math.round(pt.y / pt.h * 1000) / 10) : String(pt.y);
+              render();
+              ui.toast(`Position übernommen: ${p[f.coord[0]]}, ${p[f.coord[1]]}${pct ? ' %' : ' px'}`, 2200, 'my_location');
+            },
+          }, icon('screenshot_monitor')) : null);
           return field(f.label, row);
         }
         case 'number': {
