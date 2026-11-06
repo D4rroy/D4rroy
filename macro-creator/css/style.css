@@ -527,3 +527,18 @@ html.modal-open, html.modal-open body { overflow: hidden; overscroll-behavior: n
 .shot-info { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
 .shot-wrap { overflow: auto; max-height: 70vh; border-radius: 12px; background: #000; touch-action: pan-x pan-y pinch-zoom; }
 .shot-canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+
+/* ------------------------------------------------ Verschiebe-Modus */
+.reorder-bar { position: sticky; top: calc(var(--top-h, 56px) + 6px); z-index: 20; display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 10px 8px 14px; border-radius: 14px; background: var(--action); color: #fff; box-shadow: var(--shadow-lg); font-size: 14px; }
+.reorder-bar .reorder-text { flex: 1; line-height: 1.35; }
+.reorder-bar > .mi { flex: none; }
+.reorder-bar .mi { vertical-align: middle; font-size: 18px; }
+.reorder-bar .btn { background: rgba(255, 255, 255, .22); color: #fff; }
+.sec-reorder.on { background: #fff; color: var(--sec); }
+.item.reorder { cursor: default; }
+.drag-handle { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 10px; color: var(--text-2); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.drag-handle:hover { background: var(--surface-2); color: var(--action); }
+.drag-handle .mi { font-size: 26px; }
+.items.drag-active { position: relative; user-select: none; -webkit-user-select: none; }
+.items .dragging { position: relative; z-index: 5; background-color: var(--surface); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); opacity: .92; }
+.drop-line { position: absolute; left: 8px; right: 8px; height: 3px; border-radius: 3px; background: var(--action); z-index: 6; pointer-events: none; display: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--action) 30%, transparent); }

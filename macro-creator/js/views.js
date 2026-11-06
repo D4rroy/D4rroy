@@ -372,6 +372,13 @@
     let isNew = !stored;
     const dirty = () => stateJson(draft) !== savedJson;
     const formCtx = () => ({ locals: draft.localVars, ownerId: draft.id, triggers: draft.triggers || [], macroName: draft.name });
+    /** Verschiebe-Modus (wie in MacroDroid): erst freischalten, dann Schritte am Griff ziehen. */
+    let reorder = false;
+    const setReorder = (on) => {
+      reorder = on;
+      draw();
+      if (on) ui.toast('Verschieben freigeschaltet – Schritte am Griff ≡ ziehen', 2400, 'swap_vert');
+    };
     let root, keyHandler;
 
     function save() {
@@ -449,10 +456,13 @@
       const disabled = item.enabled === false;
       const color = { trigger: 'var(--trigger)', action: 'var(--action)', constraint: 'var(--constraint)' }[kindName];
       return h('div', {
-        class: 'item' + (disabled ? ' disabled' : '') + (isFlow ? ' flow flow-' + item.type : ''),
-        style: { '--depth': depth || 0 }, role: 'button', tabindex: '0',
-        onclick: () => itemMenu(kindName, item, index, list),
-        onkeydown: (e) => { if (e.key === 'Enter') itemMenu(kindName, item, index, list); },
+        class: 'item' + (disabled ? ' disabled' : '') + (isFlow ? ' flow flow-' + item.type : '') + (reorder ? ' reorder' : ''),
+        style: { '--depth': depth || 0 }, role: 'button', tabindex: '0', 'data-index': String(index),
+        onclick: () => { if (!reorder) itemMenu(kindName, item, index, list); },
+        onkeydown: (e) => {
+          if (reorder && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); keyMove(kindName, list, index, e.key === 'ArrowUp' ? -1 : 1); return; }
+          if (e.key === 'Enter' && !reorder) itemMenu(kindName, item, index, list);
+        },
       },
         canCollapse ? h('button', {
           class: 'collapse-btn', type: 'button', 'aria-expanded': String(!item.collapsed),
@@ -466,7 +476,105 @@
           h('div', { class: 'item-title' }, item.invert ? h('span', { class: 'badge' }, 'NICHT') : null, d ? d.name : 'Unbekannt: ' + item.type, d && !MS.catalog.supported(d) ? h('span', { class: 'badge warn', title: 'Hier nicht verfügbar' }, '!') : null,
             ui.missingPermissions(d).length ? h('span', { class: 'badge perm', title: 'Berechtigung fehlt' }, 'Berechtigung fehlt') : null),
           (() => { const s = MS.catalog.describe(kindName, item); return s ? h('div', { class: 'item-sub' }, s) : null; })()),
-        icon('more_vert', 'item-more'));
+        reorder
+          ? h('span', { class: 'drag-handle', role: 'button', 'aria-label': 'Ziehen zum Verschieben', title: 'Ziehen zum Verschieben',
+            onpointerdown: (e) => startDrag(e, kindName, list, index), onclick: (e) => e.stopPropagation() }, icon('drag_indicator'))
+          : icon('more_vert', 'item-more'));
+    }
+
+    /** Ein Schritt bzw. ein ganzer Wenn/Schleife/Gruppe-Block, der zusammen verschoben wird. */
+    const dragRange = (kindName, list, index) => [index, kindName === 'action' && MS.engine.isOpener(list[index]) ? MS.engine.blockEnd(list, index) : index];
+
+    function applyMove(list, s, e, t) {
+      if (t >= s && t <= e + 1) return false; // gleiche Stelle
+      const block = list.splice(s, e - s + 1);
+      list.splice(t > e ? t - block.length : t, 0, ...block);
+      return true;
+    }
+
+    /** Tastatur: im Verschiebe-Modus mit Pfeil hoch/runter verschieben. */
+    function keyMove(kindName, list, index, dir) {
+      if (kindName === 'action') moveUnit(list, index, dir);
+      else if (list[index + dir]) [list[index], list[index + dir]] = [list[index + dir], list[index]];
+      draw();
+    }
+
+    /** Ziehen am Griff: der Schritt folgt dem Finger, eine Linie zeigt die Zielposition. */
+    function startDrag(ev, kindName, list, index) {
+      if (ev.button !== undefined && ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const box = root.querySelector(`[data-sec="${kindName}"] .items`);
+      if (!box) return;
+      const [s, e] = dragRange(kindName, list, index);
+      const rows = [...box.children].filter((r) => r.dataset.index !== undefined);
+      const inRange = (r) => { const i = Number(r.dataset.index); return i >= s && i <= e; };
+      const moving = rows.filter(inRange);
+      // Ziel-Lücken: vor jeder sichtbaren Einheit (eingeklappte Blöcke als Ganzes) und am Ende
+      const unitRows = rows.filter((r) => r.classList.contains('item') && !inRange(r));
+      const handle = ev.currentTarget;
+      try { handle.setPointerCapture(ev.pointerId); } catch (err) { /* egal */ }
+      const startY = ev.clientY, startScroll = window.scrollY;
+      let lastY = ev.clientY, target = null, raf = 0;
+      moving.forEach((r) => r.classList.add('dragging'));
+      box.classList.add('drag-active');
+      const line = h('div', { class: 'drop-line' });
+      box.append(line);
+      const unitBottom = (r) => {
+        let last = r;
+        for (let n = r.nextElementSibling; n && n.classList.contains('collapsed-row') && Number(n.dataset.index) === Number(r.dataset.index); n = n.nextElementSibling) last = n;
+        return last.getBoundingClientRect().bottom;
+      };
+      const update = () => {
+        const dy = lastY - startY + (window.scrollY - startScroll);
+        moving.forEach((r) => { r.style.transform = `translateY(${dy}px)`; });
+        const gaps = unitRows.map((r) => ({ t: Number(r.dataset.index), y: r.getBoundingClientRect().top }));
+        if (unitRows.length) {
+          const lastRow = unitRows[unitRows.length - 1];
+          const lastIdx = Number(lastRow.dataset.index);
+          const lastEnd = kindName === 'action' && MS.engine.isOpener(list[lastIdx]) && list[lastIdx].collapsed ? MS.engine.blockEnd(list, lastIdx) : lastIdx;
+          gaps.push({ t: lastEnd + 1, y: unitBottom(lastRow) });
+        }
+        // Nur Lücken außerhalb des gezogenen Blocks; Ziel = Lücke, die dem Finger am nächsten ist
+        let best = null;
+        for (const g of gaps) {
+          if (g.t > s && g.t <= e) continue;
+          if (!best || Math.abs(g.y - lastY) < Math.abs(best.y - lastY)) best = g;
+        }
+        target = best;
+        const boxTop = box.getBoundingClientRect().top;
+        if (best && !(best.t >= s && best.t <= e + 1)) {
+          line.style.display = 'block';
+          line.style.top = (best.y - boxTop - 1) + 'px';
+        } else line.style.display = 'none';
+      };
+      const autoScroll = () => {
+        const edge = 90;
+        if (lastY < edge) window.scrollBy(0, -Math.ceil((edge - lastY) / 6));
+        else if (lastY > window.innerHeight - edge) window.scrollBy(0, Math.ceil((lastY - window.innerHeight + edge) / 6));
+        update();
+        raf = requestAnimationFrame(autoScroll);
+      };
+      const onMove = (m) => { lastY = m.clientY; m.preventDefault(); };
+      const finish = (cancel) => {
+        cancelAnimationFrame(raf);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onCancel);
+        line.remove();
+        box.classList.remove('drag-active');
+        moving.forEach((r) => { r.classList.remove('dragging'); r.style.transform = ''; });
+        if (!cancel && target && applyMove(list, s, e, target.t)) {
+          if (navigator.vibrate) try { navigator.vibrate(15); } catch (err) { /* egal */ }
+          draw();
+        }
+      };
+      const onUp = () => finish(false);
+      const onCancel = () => finish(true);
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onCancel);
+      raf = requestAnimationFrame(autoScroll);
     }
 
     async function itemMenu(kindName, item, index, list) {
@@ -617,7 +725,7 @@
                 const n = items.slice(s + 1, e).filter((a) => !MS.catalog.actions[a.type] || !['end_if', 'end_loop', 'end_group'].includes(a.type)).length;
                 const opener = items[s];
                 rows.push(h('button', {
-                  class: 'collapsed-row', type: 'button', style: { '--depth': (depth[s] || 0) + 1 },
+                  class: 'collapsed-row', type: 'button', style: { '--depth': (depth[s] || 0) + 1 }, 'data-index': String(s),
                   onclick: () => { toggleCollapse(opener, false); draw(); },
                 }, icon('unfold_more'), `${n} Aktion${n === 1 ? '' : 'en'} eingeklappt – antippen zum Ausklappen`));
               }
@@ -632,6 +740,9 @@
       return h('section', { class: 'sec', 'data-sec': kindName, style: { '--sec': color } },
         h('header', { class: 'sec-head' },
           icon(ic), h('h2', null, title), h('span', { class: 'count' }, String(items.length)), extraHead || null,
+          items.length > 1 ? h('button', { class: 'sec-add sec-reorder' + (reorder ? ' on' : ''), type: 'button', 'aria-pressed': String(reorder),
+            'aria-label': reorder ? 'Verschieben beenden' : 'Verschieben freischalten', title: reorder ? 'Verschieben beenden' : 'Verschieben freischalten',
+            onclick: () => setReorder(!reorder) }, icon(reorder ? 'lock_open' : 'swap_vert')) : null,
           h('button', { class: 'sec-add', type: 'button', 'aria-label': title + ' hinzufügen', onclick: () => addItem(kindName) }, icon('add'))),
         items.length ? body : h('p', { class: 'sec-empty' }, emptyText));
     }
@@ -703,6 +814,8 @@
           draft.constraintLogic === 'or' ? 'ODER' : 'UND')
         : null;
       fill(root, 
+        reorder ? h('div', { class: 'reorder-bar' }, icon('swap_vert'), h('span', { class: 'reorder-text' }, h('b', null, 'Verschieben aktiv'), h('br'), 'Schritt am Griff ', icon('drag_indicator'), ' ziehen – Blöcke wandern mit Inhalt.'),
+          h('button', { class: 'btn btn-tonal btn-sm', type: 'button', onclick: () => setReorder(false) }, icon('check'), 'Fertig')) : null,
         header(),
         isBlock ? null : section('trigger', 'Auslöser', 'bolt', draft.triggers),
         section('action', 'Aktionen', 'play_arrow', draft.actions),
@@ -716,6 +829,7 @@
     const menu = async () => {
       const r = await ui.sheet(draft.name || 'Unbenannt', [
         { icon: 'play_arrow', label: 'Aktionen testen', value: 'test' },
+        { icon: reorder ? 'lock' : 'swap_vert', label: reorder ? 'Verschieben beenden' : 'Verschieben freischalten', value: 'reorder' },
         { icon: 'unfold_less', label: 'Alle Blöcke einklappen', value: 'collapse_all', hidden: !draft.actions.some((a) => MS.engine.isOpener(a)) },
         { icon: 'unfold_more', label: 'Alle Blöcke ausklappen', value: 'expand_all', hidden: !draft.actions.some((a) => a.collapsed) },
         { icon: 'fact_check', label: 'Bedingungen prüfen', value: 'check', hidden: isBlock },
@@ -724,6 +838,7 @@
         { icon: 'delete', label: 'Löschen', value: 'del', danger: true },
       ]);
       if (r === 'test') testRun();
+      if (r === 'reorder') setReorder(!reorder);
       if (r === 'collapse_all' || r === 'expand_all') {
         draft.actions.forEach((a) => { if (MS.engine.isOpener(a)) toggleCollapse(a, r === 'collapse_all'); });
         draw();
