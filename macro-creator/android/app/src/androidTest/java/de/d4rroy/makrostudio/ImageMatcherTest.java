@@ -61,6 +61,43 @@ public class ImageMatcherTest {
         assertTrue("Suche zu langsam: " + (t2 - t1) + " ms", t2 - t1 < 5000);
     }
 
+    /**
+     * Pixel-Art (Spielgrafik aus groben Blöcken) an einer Stelle, die nicht auf dem internen
+     * Suchraster liegt – früher wurde sie dort wegen der Punkt-Abtastung nicht gefunden.
+     */
+    @Test
+    public void findsPixelArtAtOddPosition() {
+        Random rnd = new Random(7);
+        Bitmap s = Bitmap.createBitmap(1080, 2340, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(s);
+        Paint p = new Paint();
+        int block = 5; // ein „Spielpixel“ ist 5 Bildschirmpixel groß
+        for (int y = 0; y < 2340; y += block) {
+            for (int x = 0; x < 1080; x += block) {
+                int g = 60 + rnd.nextInt(40);
+                p.setColor(Color.rgb(g, g - 10, g - 20));
+                c.drawRect(x, y, x + block, y + block, p);
+            }
+        }
+        Bitmap button = Bitmap.createBitmap(154, 108, Bitmap.Config.ARGB_8888);
+        Canvas bc = new Canvas(button);
+        bc.drawColor(Color.rgb(16, 178, 74));
+        for (int y = 0; y < 108; y += block) {
+            for (int x = 0; x < 154; x += block) {
+                if (rnd.nextInt(3) == 0) {
+                    p.setColor(Color.rgb(rnd.nextInt(256), rnd.nextInt(256), rnd.nextInt(256)));
+                    bc.drawRect(x, y, x + block, y + block, p);
+                }
+            }
+        }
+        c.drawBitmap(button, 463, 1237, null);
+        ImageMatcher.Result r = ImageMatcher.find(s, button, null, 0.85);
+        Log.i("ImageMatcherTest", "Pixel-Art: " + r.score + " bei " + r.startX + "," + r.startY);
+        assertTrue("Pixel-Art nicht gefunden, Übereinstimmung " + r.score, r.found);
+        assertEquals(463, r.startX, 2);
+        assertEquals(1237, r.startY, 2);
+    }
+
     @Test
     public void reportsNotFoundForOtherImage() {
         Bitmap s = screen();
