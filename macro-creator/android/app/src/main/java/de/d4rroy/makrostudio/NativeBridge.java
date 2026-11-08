@@ -743,7 +743,7 @@ class NativeBridge {
         }
         String err = onMain(() -> AccessibilityHelper.screenshot((screen) -> {
             if (screen == null) {
-                resolve(callbackId, JSONObject.quote("{\"error\":\"Screenshot nicht möglich\"}"));
+                resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(AccessibilityHelper.lastScreenshotError.isEmpty() ? "Screenshot nicht möglich" : AccessibilityHelper.lastScreenshotError) + "}"));
                 return;
             }
             new Thread(() -> {
@@ -765,7 +765,7 @@ class NativeBridge {
                     resolve(callbackId, JSONObject.quote("{\"error\":\"Auswertung fehlgeschlagen\"}"));
                 }
             }).start();
-        }), "Screenshot fehlgeschlagen");
+        }), "Screenshot fehlgeschlagen (Bedienungshilfe antwortet nicht)");
         if (err != null && !err.isEmpty()) resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(err) + "}"));
     }
 
@@ -1068,7 +1068,7 @@ class NativeBridge {
     public void ocr(String region, String callbackId) {
         String err = onMain(() -> AccessibilityHelper.screenshot((screen) -> {
             if (screen == null) {
-                resolve(callbackId, JSONObject.quote("{\"error\":\"Screenshot nicht möglich\"}"));
+                resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(AccessibilityHelper.lastScreenshotError.isEmpty() ? "Screenshot nicht möglich" : AccessibilityHelper.lastScreenshotError) + "}"));
                 return;
             }
             android.graphics.Bitmap img = screen;
@@ -1091,7 +1091,7 @@ class NativeBridge {
                     resolve(callbackId, JSONObject.quote("{\"error\":\"OCR fehlgeschlagen\"}"));
                 }
             });
-        }), "Screenshot fehlgeschlagen");
+        }), "Screenshot fehlgeschlagen (Bedienungshilfe antwortet nicht)");
         if (err != null && !err.isEmpty()) resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(err) + "}"));
     }
 

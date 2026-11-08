@@ -276,25 +276,66 @@ public class AccessibilityHelper extends AccessibilityService {
     }
 
     /** Screenshot über die Bedienungshilfe (Android 11+). callback erhält Bitmap oder null. */
+    /** Grund des letzten fehlgeschlagenen Screenshots (für verständliche Meldungen). */
+    static volatile String lastScreenshotError = "";
+
     static String screenshot(java.util.function.Consumer<android.graphics.Bitmap> callback) {
         AccessibilityHelper s = instance;
         if (s == null) return NOT_ENABLED;
         if (Build.VERSION.SDK_INT < 30) return "Bildvergleich benötigt Android 11 oder neuer";
-        s.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, s.getMainExecutor(), new TakeScreenshotCallback() {
-            @Override
-            public void onSuccess(ScreenshotResult result) {
-                android.graphics.Bitmap hw = android.graphics.Bitmap.wrapHardwareBuffer(result.getHardwareBuffer(), result.getColorSpace());
-                android.graphics.Bitmap bmp = hw == null ? null : hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
-                result.getHardwareBuffer().close();
-                callback.accept(bmp);
-            }
+        lastScreenshotError = "";
+        return s.capture(callback, 0);
+    }
 
-            @Override
-            public void onFailure(int errorCode) {
-                callback.accept(null);
-            }
-        });
-        return "";
+    /** Screenshot über die Bedienungshilfe; meldet Android „zu schnell hintereinander“, wird kurz gewartet und erneut versucht. */
+    private String capture(java.util.function.Consumer<android.graphics.Bitmap> callback, int attempt) {
+        try {
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+                @Override
+                public void onSuccess(ScreenshotResult result) {
+                    android.graphics.Bitmap bmp = null;
+                    try {
+                        android.graphics.Bitmap hw = android.graphics.Bitmap.wrapHardwareBuffer(result.getHardwareBuffer(), result.getColorSpace());
+                        bmp = hw == null ? null : hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
+                        if (bmp == null) lastScreenshotError = "Screenshot konnte nicht gelesen werden";
+                    } catch (RuntimeException e) {
+                        lastScreenshotError = "Screenshot konnte nicht gelesen werden: " + e.getMessage();
+                    } finally {
+                        result.getHardwareBuffer().close();
+                    }
+                    callback.accept(bmp);
+                }
+
+                @Override
+                public void onFailure(int errorCode) {
+                    // 3 = ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT: Android erlaubt etwa einen Screenshot pro Sekunde
+                    if (errorCode == 3 && attempt < 3) {
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            String err = capture(callback, attempt + 1);
+                            if (!err.isEmpty()) { lastScreenshotError = err; callback.accept(null); }
+                        }, 1100);
+                        return;
+                    }
+                    lastScreenshotError = screenshotError(errorCode);
+                    callback.accept(null);
+                }
+            });
+            return "";
+        } catch (SecurityException e) {
+            return "Die Bedienungshilfe darf keine Screenshots machen. Bitte die Bedienungshilfe von Makro Studio einmal aus- und wieder einschalten.";
+        } catch (RuntimeException e) {
+            return "Screenshot fehlgeschlagen: " + e.getMessage();
+        }
+    }
+
+    private static String screenshotError(int code) {
+        switch (code) {
+            case 2: return "Die Bedienungshilfe darf keine Screenshots machen – bitte einmal aus- und wieder einschalten";
+            case 3: return "Zu viele Screenshots hintereinander – zwischen zwei Bildsuchen mindestens 1 Sekunde warten";
+            case 4: case 5: return "Bildschirm für den Screenshot nicht verfügbar";
+            case 6: return "Die App blockiert Screenshots (geschütztes Fenster)";
+            default: return "Screenshot fehlgeschlagen (Fehler " + code + ")";
+        }
     }
 
     /** Lautstärketasten melden; optional verschlucken (dann ändert sich die Lautstärke nicht). */

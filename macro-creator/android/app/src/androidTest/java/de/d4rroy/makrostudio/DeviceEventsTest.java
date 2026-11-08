@@ -162,6 +162,25 @@ public class DeviceEventsTest {
             until = SystemClock.uptimeMillis() + 30000;
             while (AccessibilityHelper.instance == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(300);
             assertTrue("Bedienungshilfe wurde nicht verbunden", AccessibilityHelper.instance != null);
+            // --- Echter Screenshot über die Bedienungshilfe (für „Bild auf dem Bildschirm suchen“)
+            CountDownLatch shot = new CountDownLatch(1);
+            AtomicReference<android.graphics.Bitmap> shotBmp = new AtomicReference<>();
+            AtomicReference<String> shotErr = new AtomicReference<>("");
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> shotErr.set(AccessibilityHelper.screenshot((b) -> {
+                shotBmp.set(b);
+                shot.countDown();
+            })));
+            if (!shotErr.get().isEmpty()) shot.countDown();
+            assertTrue("Screenshot hat nicht geantwortet", shot.await(15, TimeUnit.SECONDS));
+            android.graphics.Bitmap bmp = shotBmp.get();
+            Log.i(TAG, "Screenshot: " + (bmp == null ? "fehlgeschlagen – " + shotErr.get() + " / " + AccessibilityHelper.lastScreenshotError : bmp.getWidth() + " × " + bmp.getHeight()));
+            assertTrue("Screenshot fehlgeschlagen: " + shotErr.get() + " " + AccessibilityHelper.lastScreenshotError, bmp != null && bmp.getWidth() > 0);
+            // Ein Ausschnitt des Screenshots muss darin wiedergefunden werden
+            android.graphics.Bitmap part = android.graphics.Bitmap.createBitmap(bmp, bmp.getWidth() / 3, bmp.getHeight() / 3, 160, 110);
+            ImageMatcher.Result found = ImageMatcher.find(bmp, part, null, 0.85);
+            Log.i(TAG, "Bildsuche im echten Screenshot: " + found.score + " bei " + found.startX + "," + found.startY);
+            assertTrue("Ausschnitt im echten Screenshot nicht gefunden: " + found.score, found.found);
+
             SystemClock.sleep(2000); // Tastenfilter wird kurz nach dem Verbinden aktiv
             Log.i(TAG, "Flag volume_watch: " + Prefs.get(InstrumentationRegistry.getInstrumentation().getTargetContext()).getBoolean(Prefs.VOLUME_WATCH, false));
             int vol = 0;
