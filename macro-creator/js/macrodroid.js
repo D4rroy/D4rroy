@@ -323,7 +323,7 @@
     out = Array.isArray(out) ? out : [out];
     // Eingeklappte Blöcke aus MacroDroid bleiben eingeklappt
     if (a.childrenCollapsed && out[0] && MS.engine.isOpener(out[0])) out[0].collapsed = true;
-    if (a.m_isDisabled) out.forEach((x) => { if (!MS.catalog.actions[x.type].flow) x.enabled = false; });
+    if (a.m_isDisabled) out.forEach((x) => { if (!MS.catalog.actions[x.type].flow || MS.engine.isOpener(x)) x.enabled = false; });
     // MacroDroid-Bedingungen an einer einzelnen Aktion → Wenn-Block um die Aktion
     const own = (a.m_constraintList || []);
     const isFlow = /^(If|ElseIf|Loop)/.test(type) || /ConditionAction$/.test(type);

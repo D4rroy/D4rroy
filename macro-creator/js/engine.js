@@ -269,6 +269,8 @@
         if (ctx.token.cancelled) return false;
         if (++steps % 100 === 0) await sleep(0); // UI nicht blockieren
         const a = actions[pc], f = flow[pc], p = a.params || {};
+        // Deaktivierter Wenn-/Schleifen-/Gruppen-Block: samt Inhalt überspringen
+        if (a.enabled === false && OPENERS[a.type]) { pc = blockEnd(actions, pc) + 1; continue; }
         switch (a.type) {
           case 'if': {
             if (this.checkAll(p.conditions, p.logic, ctx)) { pc++; break; }

@@ -590,7 +590,8 @@
         { icon: 'arrow_upward', label: 'Nach oben', value: 'up', hidden: index === 0 },
         { icon: 'arrow_downward', label: 'Nach unten', value: 'down', hidden: (kindName === 'action' && item.collapsed ? MS.engine.blockEnd(list, index) : index) >= list.length - 1 },
         { icon: 'block', label: item.invert ? 'Umkehrung aufheben' : 'Umkehren (NICHT)', value: 'invert', hidden: kindName !== 'constraint' },
-        { icon: item.enabled === false ? 'toggle_on' : 'toggle_off', label: item.enabled === false ? 'Aktivieren' : 'Deaktivieren', value: 'toggle', hidden: isFlow },
+        { icon: item.enabled === false ? 'toggle_on' : 'toggle_off', label: item.enabled === false ? 'Aktivieren' : 'Deaktivieren', value: 'toggle', hidden: isFlow || (kindName === 'action' && MS.engine.isOpener(item)) },
+        { icon: item.enabled === false ? 'toggle_on' : 'toggle_off', label: item.enabled === false ? 'Block aktivieren (mit Inhalt)' : 'Block deaktivieren (mit Inhalt)', value: 'toggle_block', hidden: kindName !== 'action' || !MS.engine.isOpener(item) },
         { icon: 'label', label: item.label ? 'Label ändern' : 'Label hinzufügen', value: 'label', hidden: kindName !== 'action' || ['end_if', 'end_loop', 'end_group', 'else'].includes(item.type) },
         { icon: 'bookmark_add', label: 'Zum Schnellregister hinzufügen', value: 'quick', hidden: kindName !== 'action' || ['end_if', 'end_loop', 'end_group', 'else', 'else_if'].includes(item.type) },
         { icon: 'content_copy', label: 'Duplizieren', value: 'dup', hidden: isFlow },
@@ -628,6 +629,14 @@
         case 'quick': await addToQuick(item, index, list); return;
         case 'invert': item.invert = !item.invert; break;
         case 'toggle': item.enabled = item.enabled === false; break;
+        case 'toggle_block': {
+          // Wenn/Schleife/Gruppe: Blockanfang, alle Kinder (auch verschachtelte) und das Blockende gemeinsam umschalten
+          const on = item.enabled === false;
+          const end = MS.engine.blockEnd(list, index);
+          for (let i = index; i <= end; i++) list[i].enabled = on;
+          ui.toast(`${end - index + 1} Schritte ${on ? 'aktiviert' : 'deaktiviert'}`, 1600, on ? 'toggle_on' : 'toggle_off');
+          break;
+        }
         case 'dup': list.splice(index + 1, 0, Object.assign(clone(item), { id: uid() })); break;
         case 'del': deleteItem(kindName, item, index, list); break;
         default: return;
