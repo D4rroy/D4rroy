@@ -754,12 +754,25 @@ class NativeBridge {
                 }
                 ImageMatcher.Result m = ImageMatcher.find(screen, template, r, threshold);
                 try {
+                    // Für die Diagnose („Letzte Suche anzeigen“): Screenshot und Ergebnis merken
+                    JSONObject meta = new JSONObject()
+                            .put("time", System.currentTimeMillis())
+                            .put("image", name)
+                            .put("found", m.found).put("matchPercent", Math.round(Math.max(0, m.score) * 100))
+                            .put("threshold", Math.round(threshold * 100)).put("scale", m.scale)
+                            .put("startX", m.startX).put("startY", m.startY).put("endX", m.endX).put("endY", m.endY)
+                            .put("screenWidth", screen.getWidth()).put("screenHeight", screen.getHeight())
+                            .put("templateWidth", template.getWidth()).put("templateHeight", template.getHeight())
+                            .put("region", region);
+                    saveLastSearch(screen, meta);
                     JSONObject o = new JSONObject()
                             .put("found", m.found)
                             .put("centerX", (m.startX + m.endX) / 2).put("centerY", (m.startY + m.endY) / 2)
                             .put("startX", m.startX).put("startY", m.startY).put("endX", m.endX).put("endY", m.endY)
                             .put("matchPercent", Math.round(Math.max(0, m.score) * 100))
-                            .put("screenWidth", screen.getWidth()).put("screenHeight", screen.getHeight());
+                            .put("screenWidth", screen.getWidth()).put("screenHeight", screen.getHeight())
+                            .put("templateWidth", template.getWidth()).put("templateHeight", template.getHeight())
+                            .put("scale", m.scale);
                     resolve(callbackId, JSONObject.quote(o.toString()));
                 } catch (JSONException e) {
                     resolve(callbackId, JSONObject.quote("{\"error\":\"Auswertung fehlgeschlagen\"}"));
@@ -767,6 +780,53 @@ class NativeBridge {
             }).start();
         }), "Screenshot fehlgeschlagen (Bedienungshilfe antwortet nicht)");
         if (err != null && !err.isEmpty()) resolve(callbackId, JSONObject.quote("{\"error\":" + JSONObject.quote(err) + "}"));
+    }
+
+    /** Screenshot und Ergebnis der letzten Bildsuche speichern (eine Datei, wird jedes Mal ersetzt). */
+    private void saveLastSearch(android.graphics.Bitmap screen, JSONObject meta) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(imageDir(), "last_search.jpg"))) {
+            screen.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out);
+            try (java.io.FileOutputStream m = new java.io.FileOutputStream(new java.io.File(imageDir(), "last_search.json"))) { m.write(meta.toString().getBytes(StandardCharsets.UTF_8)); }
+        } catch (Exception e) {
+            android.util.Log.w("MakroStudio", "Letzte Bildsuche nicht gespeichert: " + e.getMessage());
+        }
+    }
+
+    private static byte[] readBytes(java.io.File f) throws java.io.IOException {
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) b.write(buf, 0, n);
+            return b.toByteArray();
+        }
+    }
+
+    /** Letzte Bildsuche für die Diagnose: {url (data:-URL des Screenshots), meta} oder {}. */
+    @JavascriptInterface
+    public String lastSearch() {
+        try {
+            java.io.File img = new java.io.File(imageDir(), "last_search.jpg"), meta = new java.io.File(imageDir(), "last_search.json");
+            if (!img.exists() || !meta.exists()) return "{}";
+            byte[] bytes = readBytes(img);
+            return new JSONObject()
+                    .put("url", "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                    .put("meta", new JSONObject(new String(readBytes(meta), StandardCharsets.UTF_8)))
+                    .toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    /** Vergleichsbild in voller Größe als data:-URL (für die Diagnose). */
+    @JavascriptInterface
+    public String imageData(String name) {
+        try {
+            java.io.File f = new java.io.File(imageDir(), new java.io.File(name).getName());
+            return "data:image/png;base64," + android.util.Base64.encodeToString(readBytes(f), android.util.Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     @JavascriptInterface

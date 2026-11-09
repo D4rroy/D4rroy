@@ -525,8 +525,13 @@ html.modal-open, html.modal-open body { overflow: hidden; overscroll-behavior: n
 .shot-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .shot-tools .btn.on { background: color-mix(in srgb, var(--action) 14%, transparent); }
 .shot-info { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
-.shot-wrap { overflow: auto; max-height: 70vh; border-radius: 12px; background: #000; touch-action: pan-x pan-y pinch-zoom; }
-.shot-canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+.shot-wrap { position: relative; overflow: hidden; height: 62vh; border-radius: 12px; background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+.shot-canvas { position: absolute; left: 0; top: 0; display: block; height: auto; transform-origin: 0 0; cursor: crosshair; image-rendering: pixelated; }
+.diag-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.diag-table th { text-align: left; font-weight: 600; color: var(--text-2); padding: 4px 10px 4px 0; white-space: nowrap; vertical-align: top; }
+.diag-table td { padding: 4px 0; word-break: break-word; }
+.diag-tpl { display: flex; align-items: center; gap: 10px; }
+.diag-tpl img { max-height: 64px; max-width: 50%; border-radius: 6px; image-rendering: pixelated; background: var(--surface-3); }
 
 /* ------------------------------------------------ Verschiebe-Modus */
 .reorder-bar { position: sticky; top: calc(var(--top-h, 56px) + 6px); z-index: 20; display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 10px 8px 14px; border-radius: 14px; background: var(--action); color: #fff; box-shadow: var(--shadow-lg); font-size: 14px; }

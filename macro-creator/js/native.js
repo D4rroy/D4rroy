@@ -105,6 +105,8 @@
       return res;
     },
     isDeviceLocked: () => A.isDeviceLocked(),
+    lastSearch() { try { return JSON.parse(A.lastSearch()); } catch (e) { return {}; } },
+    imageData: (name) => A.imageData(String(name)),
     sendIntent: (o) => check(A.sendIntent(o.target, o.action || '', o.data || '', o.mime || '', o.pkg || '', o.cls || '', o.category || '', Math.round(Number(o.flags) || 0), JSON.stringify(o.extras || {}))),
 
     // ---- Systemzustand & neue Gerätefunktionen

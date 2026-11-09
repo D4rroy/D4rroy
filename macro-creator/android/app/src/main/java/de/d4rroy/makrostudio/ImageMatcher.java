@@ -12,6 +12,8 @@ final class ImageMatcher {
         boolean found;
         int startX, startY, endX, endY;
         double score;
+        /** Größenfaktor, mit dem das Vergleichsbild gefunden wurde (1 = Originalgröße). */
+        double scale = 1;
     }
 
     private ImageMatcher() {
@@ -103,7 +105,25 @@ final class ImageMatcher {
      * @param region {x, y, w, h} in Pixeln oder null für den ganzen Bildschirm
      * @param threshold Mindestübereinstimmung 0..1
      */
+    /** Größenfaktoren für die zweite Runde, falls das Vergleichsbild aus einer anderen Auflösung stammt. */
+    private static final double[] SCALES = { 0.9, 1.1, 0.8, 1.25, 0.75, 1.333, 0.667, 1.5, 0.5, 2.0 };
+
     static Result find(Bitmap screen, Bitmap template, int[] region, double threshold) {
+        Result best = findAtScale(screen, template, region, threshold);
+        if (best.found) return best;
+        // Nicht gefunden: dieselbe Suche mit vergrößertem/verkleinertem Vergleichsbild
+        for (double sc : SCALES) {
+            int w = (int) Math.round(template.getWidth() * sc), h = (int) Math.round(template.getHeight() * sc);
+            if (w < 8 || h < 8) continue;
+            Result r = findAtScale(screen, Bitmap.createScaledBitmap(template, w, h, true), region, threshold);
+            r.scale = sc;
+            if (r.score > best.score) best = r;
+            if (best.found) break;
+        }
+        return best;
+    }
+
+    private static Result findAtScale(Bitmap screen, Bitmap template, int[] region, double threshold) {
         Result r = new Result();
         int rx = 0, ry = 0, rw = screen.getWidth(), rh = screen.getHeight();
         if (region != null) {

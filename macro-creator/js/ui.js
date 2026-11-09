@@ -754,52 +754,149 @@
 
   // ------------------------------------------------- Position auf Screenshot wählen
   let lastShot = null; // { url, w, h } – bleibt für die nächste Auswahl erhalten
+
+  /**
+   * Bildbetrachter mit eigenem Zoomen (zwei Finger / Mausrad) und Verschieben (ein Finger).
+   * Nur das Bild wird verändert, nie die ganze Seite. onTap(x, y) erhält Bildpixel.
+   */
+  function zoomView({ onTap, paint }) {
+    const canvas = h('canvas', { class: 'shot-canvas' });
+    const wrap = h('div', { class: 'shot-wrap' }, canvas);
+    let scale = 1, tx = 0, ty = 0;
+    const apply = () => {
+      const ww = wrap.clientWidth || 1, wh = wrap.clientHeight || 1;
+      const cw = ww * scale, ch = canvas.height ? cw * canvas.height / canvas.width : wh;
+      // Nicht über die Ränder hinaus verschieben
+      tx = cw <= ww ? (ww - cw) / 2 : Math.min(0, Math.max(ww - cw, tx));
+      ty = ch <= wh ? (wh - ch) / 2 : Math.min(0, Math.max(wh - ch, ty));
+      canvas.style.width = ww + 'px';
+      canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    };
+    const minScale = () => {
+      if (!canvas.width) return 1;
+      const ww = wrap.clientWidth || 1, wh = wrap.clientHeight || 1;
+      return Math.min(1, wh / (ww * canvas.height / canvas.width));
+    };
+    const zoomAt = (ns, cx, cy) => {
+      ns = Math.min(12, Math.max(minScale(), ns));
+      const r = wrap.getBoundingClientRect();
+      const px = cx - r.left, py = cy - r.top;
+      tx = px - (px - tx) * (ns / scale);
+      ty = py - (py - ty) * (ns / scale);
+      scale = ns;
+      apply();
+    };
+    const pts = new Map();
+    let start = null, moved = false, pinched = false;
+    wrap.addEventListener('pointerdown', (e) => {
+      wrap.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 1) { moved = false; pinched = false; start = { x: e.clientX, y: e.clientY, tx, ty }; }
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinched = true;
+        start = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, scale, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, tx, ty };
+      }
+    });
+    wrap.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !start) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size >= 2 && start.d) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const ns = Math.min(12, Math.max(minScale(), start.scale * d / start.d));
+        const r = wrap.getBoundingClientRect();
+        const px0 = start.mx - r.left, py0 = start.my - r.top;
+        // Der Bildpunkt unter der Fingermitte bleibt unter der Fingermitte
+        tx = (mx - r.left) - (px0 - start.tx) * (ns / start.scale);
+        ty = (my - r.top) - (py0 - start.ty) * (ns / start.scale);
+        scale = ns;
+        apply();
+      } else if (pts.size === 1 && !pinched) {
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
+        if (moved) { tx = start.tx + dx; ty = start.ty + dy; apply(); }
+      }
+    });
+    const end = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const wasSingle = pts.size === 1;
+      pts.delete(e.pointerId);
+      if (wasSingle && !moved && !pinched && onTap && canvas.width) {
+        const r = canvas.getBoundingClientRect();
+        onTap(Math.round((e.clientX - r.left) / r.width * canvas.width), Math.round((e.clientY - r.top) / r.height * canvas.height));
+      }
+      if (pts.size === 1) { const [p] = [...pts.values()]; start = { x: p.x, y: p.y, tx, ty }; moved = true; }
+      if (!pts.size) start = null;
+    };
+    wrap.addEventListener('pointerup', end);
+    wrap.addEventListener('pointercancel', (e) => { pts.delete(e.pointerId); if (!pts.size) start = null; });
+    wrap.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }, { passive: false });
+    return {
+      wrap, canvas,
+      redraw() { paint(canvas); apply(); },
+      reset() { scale = 1; tx = 0; ty = 0; apply(); },
+      /** Auf eine Bildstelle zoomen (Bildpixel). */
+      focus(x, y, s) {
+        const r = wrap.getBoundingClientRect();
+        scale = Math.min(12, Math.max(minScale(), s));
+        const cw = (wrap.clientWidth || 1) * scale;
+        tx = r.width / 2 - x / canvas.width * cw;
+        ty = r.height / 2 - y / canvas.height * (cw * canvas.height / canvas.width);
+        apply();
+      },
+      pixelScale: () => (canvas.width / (window.devicePixelRatio || 1)) / (wrap.clientWidth || 1),
+    };
+  }
+
+  function drawGrid(g, W, H) {
+    const lw = Math.max(1, Math.round(W / 540));
+    g.font = `bold ${Math.round(W / 45)}px monospace`;
+    for (let x = 50; x < W; x += 50) {
+      g.strokeStyle = x % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = x % 100 ? lw : lw * 1.5;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+    }
+    for (let y = 50; y < H; y += 50) {
+      g.strokeStyle = y % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = y % 100 ? lw : lw * 1.5;
+      g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    }
+    g.fillStyle = 'rgba(0,0,0,.7)';
+    for (let x = 100; x < W; x += 100) g.fillRect(x + 2, 2, W / 22, W / 36);
+    for (let y = 100; y < H; y += 100) g.fillRect(2, y + 2, W / 22, W / 36);
+    g.fillStyle = '#fff';
+    for (let x = 100; x < W; x += 100) g.fillText(String(x), x + 4, W / 45 + 2);
+    for (let y = 100; y < H; y += 100) g.fillText(String(y), 4, y + W / 45 + 2);
+  }
+  const zoomHint = 'Mit zwei Fingern zoomen, mit einem Finger verschieben.';
+
   /** Screenshot als Sichtfenster: Stelle antippen → { x, y, w, h } in Bildpixeln oder null. */
   ui.screenPointPicker = function (start) {
-    const wrap = h('div', { class: 'shot-wrap' });
-    const canvas = h('canvas', { class: 'shot-canvas' });
     const info = h('div', { class: 'shot-info' }, 'Screenshot auswählen …');
     const file = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
-    let img = null, point = start && Number.isFinite(start.x) ? { x: start.x, y: start.y } : null, grid = true, zoom = false;
-    const paint = () => {
-      if (!img) return;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const g = canvas.getContext('2d');
-      g.drawImage(img, 0, 0);
-      const W = canvas.width, H = canvas.height;
-      const lw = Math.max(1, Math.round(W / 540));
-      if (grid) {
-        g.font = `bold ${Math.round(W / 45)}px monospace`;
-        for (let x = 50; x < W; x += 50) {
-          g.strokeStyle = x % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = x % 100 ? lw : lw * 1.5;
-          g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+    let img = null, point = start && Number.isFinite(start.x) ? { x: start.x, y: start.y } : null, grid = true;
+    const view = zoomView({
+      onTap: (x, y) => { point = { x, y }; view.redraw(); },
+      paint(canvas) {
+        if (!img) return;
+        if (canvas.width !== img.naturalWidth) { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; }
+        const g = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        g.drawImage(img, 0, 0);
+        if (grid) drawGrid(g, W, H);
+        if (point) {
+          const r = Math.round(W / 30), lw = Math.max(1, Math.round(W / 540)) * 3;
+          g.strokeStyle = '#00e5ff'; g.lineWidth = lw;
+          g.beginPath(); g.moveTo(point.x - r * 2, point.y); g.lineTo(point.x + r * 2, point.y); g.moveTo(point.x, point.y - r * 2); g.lineTo(point.x, point.y + r * 2); g.stroke();
+          g.beginPath(); g.arc(point.x, point.y, r, 0, Math.PI * 2); g.stroke();
         }
-        for (let y = 50; y < H; y += 50) {
-          g.strokeStyle = y % 100 ? 'rgba(255,230,0,.35)' : 'rgba(255,40,40,.6)'; g.lineWidth = y % 100 ? lw : lw * 1.5;
-          g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
-        }
-        g.fillStyle = 'rgba(0,0,0,.7)';
-        for (let x = 100; x < W; x += 100) { g.fillRect(x + 2, 2, W / 22, W / 36); }
-        for (let y = 100; y < H; y += 100) { g.fillRect(2, y + 2, W / 22, W / 36); }
-        g.fillStyle = '#fff';
-        for (let x = 100; x < W; x += 100) g.fillText(String(x), x + 4, W / 45 + 2);
-        for (let y = 100; y < H; y += 100) g.fillText(String(y), 4, y + W / 45 + 2);
-      }
-      if (point) {
-        const r = Math.round(W / 30);
-        g.strokeStyle = '#00e5ff'; g.lineWidth = lw * 3;
-        g.beginPath(); g.moveTo(point.x - r * 2, point.y); g.lineTo(point.x + r * 2, point.y); g.moveTo(point.x, point.y - r * 2); g.lineTo(point.x, point.y + r * 2); g.stroke();
-        g.beginPath(); g.arc(point.x, point.y, r, 0, Math.PI * 2); g.stroke();
-      }
-      canvas.style.width = zoom ? W / (window.devicePixelRatio || 1) + 'px' : '100%';
-      info.textContent = point
-        ? `X ${point.x} · Y ${point.y} px  (${(point.x / W * 100).toFixed(1)} % · ${(point.y / H * 100).toFixed(1)} %)  –  Bild ${W} × ${H}`
-        : `Stelle im Bild antippen  –  Bild ${W} × ${H}`;
-    };
+        info.textContent = point
+          ? `X ${point.x} · Y ${point.y} px  (${(point.x / W * 100).toFixed(1)} % · ${(point.y / H * 100).toFixed(1)} %)  –  Bild ${W} × ${H}`
+          : `Stelle im Bild antippen  –  Bild ${W} × ${H}`;
+      },
+    });
     const load = (url) => {
       const i = new Image();
-      i.onload = () => { img = i; lastShot = { url, w: i.naturalWidth, h: i.naturalHeight }; paint(); };
+      i.onload = () => { img = i; lastShot = { url, w: i.naturalWidth, h: i.naturalHeight }; view.redraw(); view.reset(); };
       i.onerror = () => { info.textContent = 'Bild konnte nicht geladen werden.'; };
       i.src = url;
     };
@@ -807,25 +904,66 @@
       const f = file.files && file.files[0];
       if (f) { point = null; load(URL.createObjectURL(f)); }
     });
-    canvas.addEventListener('click', (e) => {
-      if (!img) return;
-      const r = canvas.getBoundingClientRect();
-      point = { x: Math.round((e.clientX - r.left) / r.width * canvas.width), y: Math.round((e.clientY - r.top) / r.height * canvas.height) };
-      paint();
-    });
     const tools = h('div', { class: 'shot-tools' },
       h('button', { class: 'btn btn-tonal btn-sm', type: 'button', onclick: () => file.click() }, icon('add_photo_alternate'), 'Screenshot wählen'),
-      h('button', { class: 'btn btn-text btn-sm on', type: 'button', onclick: (e) => { grid = !grid; e.currentTarget.classList.toggle('on', grid); paint(); } }, icon('grid_on'), 'Raster'),
-      h('button', { class: 'btn btn-text btn-sm', type: 'button', onclick: () => { zoom = !zoom; paint(); } }, icon('zoom_in'), 'Zoom 1:1'));
-    wrap.append(canvas);
+      h('button', { class: 'btn btn-text btn-sm on', type: 'button', onclick: (e) => { grid = !grid; e.currentTarget.classList.toggle('on', grid); view.redraw(); } }, icon('grid_on'), 'Raster'),
+      h('button', { class: 'btn btn-text btn-sm', type: 'button', onclick: () => (point ? view.focus(point.x, point.y, view.pixelScale()) : view.reset()) }, icon('zoom_in'), 'Zoom 1:1'),
+      h('button', { class: 'btn btn-text btn-sm', type: 'button', onclick: () => view.reset() }, icon('fit_screen'), 'Ganz'));
     if (lastShot) load(lastShot.url); else setTimeout(() => file.click(), 50);
     return ui.modal({
       title: 'Position auf Screenshot',
       variant: 'full',
-      content: h('div', { class: 'shot-picker' }, tools, info, wrap, file,
-        h('p', { class: 'field-hint' }, 'Tipp: Screenshot im Spiel machen, hier auswählen und die gewünschte Stelle antippen. Pixel passen nur zum selben Gerät; mit „% der Bildschirmgröße“ funktioniert es auch auf anderen Auflösungen.')),
-      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Übernehmen', primary: true, value: () => (point && img ? { x: point.x, y: point.y, w: canvas.width, h: canvas.height } : null),
+      content: h('div', { class: 'shot-picker' }, tools, info, view.wrap, file,
+        h('p', { class: 'field-hint' }, zoomHint + ' Tippen setzt die Position. Pixel passen nur zum selben Gerät; mit „% der Bildschirmgröße“ funktioniert es auch auf anderen Auflösungen.')),
+      buttons: [{ label: 'Abbrechen', value: null }, { label: 'Übernehmen', primary: true, value: () => (point && img ? { x: point.x, y: point.y, w: img.naturalWidth, h: img.naturalHeight } : null),
         validate: () => { if (!point) { ui.toast('Bitte zuerst eine Stelle antippen'); return false; } return true; } }],
+    });
+  };
+
+  /** Diagnose der letzten Bildsuche: Screenshot, durchsuchter Bereich, beste Fundstelle und Vergleichsbild. */
+  ui.showLastSearch = function () {
+    const last = MS.native.available ? MS.native.lastSearch() : {};
+    if (!last.url) return ui.alert('Noch keine Bildsuche', 'Erst ein Makro mit „Bild auf dem Bildschirm suchen“ ausführen – danach ist hier der verwendete Screenshot zu sehen.');
+    const m = last.meta || {};
+    const region = m.region ? String(m.region).split(',').map(Number) : null;
+    let img = null;
+    const view = zoomView({
+      paint(canvas) {
+        if (!img) return;
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        const g = canvas.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const lw = Math.max(2, Math.round(canvas.width / 270));
+        if (region && region.length === 4) {
+          g.setLineDash([lw * 4, lw * 3]); g.strokeStyle = '#2f7de1'; g.lineWidth = lw;
+          g.strokeRect(region[0], region[1], region[2], region[3]); g.setLineDash([]);
+        }
+        g.strokeStyle = m.found ? '#2ea05a' : '#e04848'; g.lineWidth = lw * 1.5;
+        g.strokeRect(m.startX, m.startY, m.endX - m.startX, m.endY - m.startY);
+      },
+    });
+    const i = new Image();
+    i.onload = () => { img = i; view.redraw(); view.reset(); };
+    i.src = last.url;
+    const tpl = m.image ? MS.native.imageData(m.image) : '';
+    const when = m.time ? new Date(m.time).toLocaleString('de-DE') : '';
+    const rows = [
+      ['Ergebnis', `${m.found ? 'gefunden' : 'nicht gefunden'} – ${m.matchPercent} % (nötig: ${m.threshold} %)`],
+      ['Screenshot', `${m.screenWidth} × ${m.screenHeight} px`],
+      ['Vergleichsbild', `${m.templateWidth} × ${m.templateHeight} px${m.scale && m.scale !== 1 ? ` · gefunden mit Faktor ${m.scale}` : ''}`],
+      ['Bereich', region ? `${region[0]},${region[1]} ${region[2]} × ${region[3]} (blau gestrichelt)` : 'ganzer Bildschirm'],
+      ['Beste Stelle', `${m.startX},${m.startY} – ${m.endX},${m.endY} (${m.found ? 'grün' : 'rot'})`],
+    ];
+    return ui.modal({
+      title: 'Letzte Bildsuche',
+      variant: 'full',
+      content: h('div', { class: 'shot-picker' },
+        h('div', { class: 'shot-info' }, when),
+        h('table', { class: 'diag-table' }, rows.map(([k, v]) => h('tr', null, h('th', null, k), h('td', null, v)))),
+        tpl ? h('div', { class: 'diag-tpl' }, h('span', { class: 'field-hint' }, 'Vergleichsbild:'), h('img', { src: tpl, alt: 'Vergleichsbild' })) : null,
+        view.wrap,
+        h('p', { class: 'field-hint' }, zoomHint + ' Ist auf dem Screenshot nicht das zu sehen, was du erwartest (z. B. ein anderer Bildschirm), läuft die Suche zum falschen Zeitpunkt – dann vorher länger warten.')),
+      buttons: [{ label: 'Schließen', primary: true, value: null }],
     });
   };
 

@@ -1216,6 +1216,7 @@
       { key: 'resultVar', label: 'Gefunden (Ja/Nein) speichern in', type: 'var', varTypes: ['boolean'], required: true },
       { key: 'posVar', label: 'Fundstelle speichern in (Wörterbuch, optional)', type: 'var', varTypes: ['dictionary'], optional: true },
       { key: 'posKey', label: 'Unter dem Eintrag (optional), z. B. [Koordinaten Chest]', type: 'text', default: '', showIf: (p) => !!p.posVar },
+      { type: 'button', label: 'Letzte Suche anzeigen (Diagnose)', icon: 'troubleshoot', nativeOnly: true, hint: 'Zeigt den Screenshot der letzten Bildsuche mit Bereich und bester Fundstelle.', onClick: () => { MS.ui.showLastSearch(); } },
     ],
     describe: (p) => `${p.imageLabel || 'Vergleichsbild'}${p.useRegion ? ` in ${p.rx},${p.ry} ${p.rw}×${p.rh}${p.percent ? ' %' : ''}` : ''} → ${varName(p.resultVar)}`,
     async run(ctx, p) {
@@ -1234,7 +1235,8 @@
         if (keys.length) MS.vars.setPath(p.posVar, keys, pos, ctx);
         else MS.vars.set(p.posVar, pos, ctx);
       }
-      MS.log('action', `Bildsuche: ${res.found ? 'gefunden' : 'nicht gefunden'} (${res.matchPercent} % Übereinstimmung)`, ctx.macroName);
+      const scaleTxt = res.scale && res.scale !== 1 ? `, Vergleichsbild mit Faktor ${res.scale}` : '';
+      MS.log(res.found ? 'action' : 'warn', `Bildsuche: ${res.found ? 'gefunden' : 'nicht gefunden'} (${res.matchPercent} % Übereinstimmung, beste Stelle ${res.startX},${res.startY}${scaleTxt}) – Screenshot ${res.screenWidth}×${res.screenHeight}, Vergleichsbild ${res.templateWidth}×${res.templateHeight}${region ? ', Bereich ' + region : ''}. Details: Aktion öffnen → „Letzte Suche anzeigen“.`, ctx.macroName);
     },
   });
 
